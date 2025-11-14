@@ -11,6 +11,16 @@ import random
 from pycocotools.coco import COCO
 import os
 import numpy as np
+import time 
+from configs.models_registry import MODEL_ZOO
+from configs.config import MODEL_KEY
+from utils.roi_cropper import ROICropper
+
+def get_model_config(model_key: str):
+    if model_key not in MODEL_ZOO:
+        raise ValueError(f"Unknown model '{model_key}'. Available: {list(MODEL_ZOO.keys())}")
+    return MODEL_ZOO[model_key]["model_name"], MODEL_ZOO[model_key]["checkpoint"]
+
 
 def collect_env():
     """Collect the information of the running environments."""
@@ -33,13 +43,19 @@ if __name__ == '__main__':
     # Initialize COCO
     coco = COCO(train_ann_path)
     
-    # Crop car roi using pretrained model
-    model_name = 'rtmdet_tiny_8xb32-300e_coco'
-    checkpoint = 'checkpoints/rtmdet_tiny_8xb32-300e_coco_20220902_112414-78e30dcc.pth'
+    # Get Crop car roi pretrained model
+    model_name, checkpoint = get_model_config(MODEL_KEY)
+
+    print(f'Using model {MODEL_KEY}')
+    # model_name = 'yolox_s_8x8_300e_coco'#'rtmdet_tiny_8xb32-300e_coco'
+    # checkpoint = 'checkpoints/yolox_s_8x8_300e_coco_20211121_095711-4592a793.pth'#'checkpoints/rtmdet_tiny_8xb32-300e_coco_20220902_112414-78e30dcc.pth'
     
     # --- Initialize and run inference ---
     inferencer = DetInferencer(model_name, checkpoint)
-    
+    class_names = inferencer.model.dataset_meta['classes']
+
+    cropper = ROICropper(class_names)
+
     k = 10
     
     for _ in range(k):
@@ -99,9 +115,9 @@ if __name__ == '__main__':
         result_roi = result['visualization'][0]
         pred = result['predictions'][0]
     
-        roi_bboxes = pred['bboxes']
-        roi_scores = pred['scores']
-        roi_labels = pred['labels']
+        bboxes = np.array(pred['bboxes'])
+        scores = np.array(pred['scores'])
+        labels = np.array(pred['labels'])
     
         plt.figure(figsize=(8, 8))
         plt.imshow(result_roi)
@@ -111,5 +127,14 @@ if __name__ == '__main__':
     
         plt.show()   
         
+        # Prepare cropper
+        img_h, img_w = image.shape[:2]
+
+        roi, cls, class_name, score = cropper.extract_roi(bboxes, scores, labels, img_w, img_h)
+
+    
+    stats = cropper.get_statistics()
+    print(stats)
+
     print('done')
     

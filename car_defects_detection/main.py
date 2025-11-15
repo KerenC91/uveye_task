@@ -15,6 +15,9 @@ import time
 from configs.models_registry import MODEL_ZOO
 from configs.config import MODEL_KEY
 from utils.roi_cropper import ROICropper
+import torch 
+import json
+
 
 def get_model_config(model_key: str):
     if model_key not in MODEL_ZOO:
@@ -22,16 +25,10 @@ def get_model_config(model_key: str):
     return MODEL_ZOO[model_key]["model_name"], MODEL_ZOO[model_key]["checkpoint"]
 
 
-def collect_env():
-    """Collect the information of the running environments."""
-    env_info = collect_base_env()
-    env_info['MMDetection'] = f'{mmdet.__version__}+{get_git_hash()[:7]}'
-    return env_info
+random.seed(42)
 
 
 if __name__ == '__main__':
-    for name, val in collect_env().items():
-        print(f'{name}: {val}')
 
     data_dir = 'data/Dataset'
     ann_path = os.path.join(data_dir, 'annotations')
@@ -43,6 +40,14 @@ if __name__ == '__main__':
     # Initialize COCO
     coco = COCO(train_ann_path)
     
+    # Load the full annotation JSON so we can modify and save it
+    with open(train_ann_path, "r") as f:
+        coco_json = json.load(f)
+    
+    # Build a mapping image_id → image dict
+    image_dict = {img["id"]: img for img in coco_json["images"]}
+
+
     # Get Crop car roi pretrained model
     model_name, checkpoint = get_model_config(MODEL_KEY)
 
@@ -54,14 +59,18 @@ if __name__ == '__main__':
 
     cropper = ROICropper(class_names)
 
+
+    # Randomly choose k image IDs (no duplicates)
     k = 10
     img_ids = coco.getImgIds()
-    img_ids = sorted(img_ids)          # optional but recommended
-    subset = img_ids[0:k]           # e.g. start=0, end=100
+    chosen_ids = random.sample(img_ids, k)
 
+    print(f'Chosen ids: {chosen_ids}')
+    
     times = []
+    updated_annotations = {}
 
-    for img_id in subset:
+    for img_id in chosen_ids:
         img_info = coco.loadImgs(img_id)[0]        # Pick random image
         # img_id = random.choice(coco.getImgIds())
         # img_info = coco.loadImgs(img_id)[0]
@@ -111,11 +120,14 @@ if __name__ == '__main__':
         # plt.savefig(os.path.join(output_path, 'image_manipulated.jpg'))
     
         # plt.show()      
-            
+        plt.imsave(os.path.join(output_path, 'image_manipulated.jpg'), image_manipulated)
+
+        torch.cuda.synchronize()
         start_time = time.time() 
         
-        result = inferencer(image, out_dir=output_path)
+        result = inferencer(image, return_vis=True)
         
+        torch.cuda.synchronize()
         end_time = time.time()
         
         times.append(end_time - start_time)
@@ -136,10 +148,23 @@ if __name__ == '__main__':
     
         # plt.show()   
         
+        plt.imsave(os.path.join(output_path, f'result_roi_{MODEL_KEY}.jpg'), result_roi)
+
         # Prepare cropper
         img_h, img_w = image.shape[:2]
 
         roi, cls, class_name, score = cropper.extract_roi(bboxes, scores, labels, img_w, img_h)
+        
+        x1, y1, x2, y2 = map(int, roi)
+        roi_coco_format = [x1, y1, x2 - x1, y2 - y1]
+        
+        # Update COCO image entry
+        image_entry = image_dict[img_id]
+        image_entry["roi_bbox"] = roi_coco_format
+        image_entry["roi_class_id"] = cls
+        image_entry["roi_class_name"] = class_name
+        image_entry["roi_score"] = score
+        
         
         # roi = [x1, y1, x2, y2]
         x1, y1, x2, y2 = map(int, roi)
@@ -154,8 +179,17 @@ if __name__ == '__main__':
         plt.savefig(os.path.join(output_path, f'roi_img_{MODEL_KEY}.jpg'))
     
         plt.show()  
+        plt.imsave(os.path.join(output_path, f'roi_img_{MODEL_KEY}.jpg'), result_roi)
 
     
+    output_ann_path = os.path.join(ann_path, "annotations_train_with_roi.json")
+    
+    with open(output_ann_path, "w") as f:
+        json.dump(coco_json, f, indent=2)
+    
+    print(f"Saved updated COCO annotations with ROI → {output_ann_path}")
+
+
     stats = cropper.get_statistics()
     print(stats)
     avg_time = np.mean(times) if times else 0

@@ -10,6 +10,8 @@ class ROICropper:
 
     def __init__(self, class_names=None):
         self.class_counter = defaultdict(int)
+        self.full_area_counter = 0
+
         self.class_scores_sum = defaultdict(float)
         self.global_scores = []
         self.class_names = class_names
@@ -23,6 +25,8 @@ class ROICropper:
     
         # No predictions at all → full image
         if bboxes is None or len(bboxes) == 0:
+            self.full_area_counter += 1
+            
             return [0, 0, img_w, img_h], None, None, 0.0
     
         # Keep only vehicle classes
@@ -30,6 +34,8 @@ class ROICropper:
     
         # If nothing relevant → full image
         if len(valid_indices) == 0:
+            self.full_area_counter += 1
+
             return [0, 0, img_w, img_h], None, None, 0.0
     
         # Extract only valid predictions
@@ -47,6 +53,8 @@ class ROICropper:
     
         # If confidence is too low → fallback to full image
         if score < th:
+            self.full_area_counter += 1
+
             return [0, 0, img_w, img_h], None, None, score
     
         # Otherwise, accept ROI and update statistics
@@ -75,6 +83,7 @@ class ROICropper:
         return {
             "per_class": per_class_stats,
             "global_avg_accuracy": global_avg,
-            "global_min_accuracy": global_min
+            "global_min_accuracy": global_min,
+            "full_area_counter": self.full_area_counter
         }
 

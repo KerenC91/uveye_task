@@ -47,9 +47,7 @@ if __name__ == '__main__':
     model_name, checkpoint = get_model_config(MODEL_KEY)
 
     print(f'Using model {MODEL_KEY}')
-    # model_name = 'yolox_s_8x8_300e_coco'#'rtmdet_tiny_8xb32-300e_coco'
-    # checkpoint = 'checkpoints/yolox_s_8x8_300e_coco_20211121_095711-4592a793.pth'#'checkpoints/rtmdet_tiny_8xb32-300e_coco_20220902_112414-78e30dcc.pth'
-    
+
     # --- Initialize and run inference ---
     inferencer = DetInferencer(model_name, checkpoint)
     class_names = inferencer.model.dataset_meta['classes']
@@ -57,11 +55,16 @@ if __name__ == '__main__':
     cropper = ROICropper(class_names)
 
     k = 10
-    
-    for _ in range(k):
-        # Pick random image
-        img_id = random.choice(coco.getImgIds())
-        img_info = coco.loadImgs(img_id)[0]
+    img_ids = coco.getImgIds()
+    img_ids = sorted(img_ids)          # optional but recommended
+    subset = img_ids[0:k]           # e.g. start=0, end=100
+
+    times = []
+
+    for img_id in subset:
+        img_info = coco.loadImgs(img_id)[0]        # Pick random image
+        # img_id = random.choice(coco.getImgIds())
+        # img_info = coco.loadImgs(img_id)[0]
         img_path = os.path.join(train_path, img_info['file_name'])
         output_path = os.path.join('output', f'id_{str(img_id)}')
         
@@ -101,16 +104,22 @@ if __name__ == '__main__':
     
         plt.show() 
         
-        plt.figure(figsize=(8, 8))
-        plt.imshow(image_manipulated)
-        plt.title(f"{img_info['file_name']}  |  ID: {img_id}")
-        plt.axis('off')
-        plt.savefig(os.path.join(output_path, 'image_manipulated.jpg'))
+        # plt.figure(figsize=(8, 8))
+        # plt.imshow(image_manipulated)
+        # plt.title(f"{img_info['file_name']}  |  ID: {img_id}")
+        # plt.axis('off')
+        # plt.savefig(os.path.join(output_path, 'image_manipulated.jpg'))
     
-        plt.show()      
+        # plt.show()      
             
-    
+        start_time = time.time() 
+        
         result = inferencer(image, out_dir=output_path)
+        
+        end_time = time.time()
+        
+        times.append(end_time - start_time)
+
         
         result_roi = result['visualization'][0]
         pred = result['predictions'][0]
@@ -119,22 +128,38 @@ if __name__ == '__main__':
         scores = np.array(pred['scores'])
         labels = np.array(pred['labels'])
     
-        plt.figure(figsize=(8, 8))
-        plt.imshow(result_roi)
-        plt.title(f"result_roi {img_info['file_name']}  |  ID: {img_id}")
-        plt.axis('off')
-        plt.savefig(os.path.join(output_path, 'result_roi.jpg'))
+        # plt.figure(figsize=(8, 8))
+        # plt.imshow(result_roi)
+        # plt.title(f"result_roi {img_info['file_name']}  |  ID: {img_id}")
+        # plt.axis('off')
+        # plt.savefig(os.path.join(output_path, f'result_roi_{MODEL_KEY}.jpg'))
     
-        plt.show()   
+        # plt.show()   
         
         # Prepare cropper
         img_h, img_w = image.shape[:2]
 
         roi, cls, class_name, score = cropper.extract_roi(bboxes, scores, labels, img_w, img_h)
+        
+        # roi = [x1, y1, x2, y2]
+        x1, y1, x2, y2 = map(int, roi)
+        
+        # Crop ROI from the original image
+        roi_img = image[y1:y2, x1:x2]
+
+        plt.figure(figsize=(8, 8))
+        plt.imshow(roi_img)
+        plt.title(f"result_roi {img_info['file_name']}  |  ID: {img_id}")
+        plt.axis('off')
+        plt.savefig(os.path.join(output_path, f'roi_img_{MODEL_KEY}.jpg'))
+    
+        plt.show()  
 
     
     stats = cropper.get_statistics()
     print(stats)
+    avg_time = np.mean(times) if times else 0
+    print(f'Model {MODEL_KEY} took {avg_time:.03f} seconds in average over {k} datapoints.')
 
     print('done')
     

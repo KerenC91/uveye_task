@@ -4,7 +4,7 @@ from mmengine.utils.dl_utils import collect_env as collect_base_env
 import mmdet
 
 from mmdet.apis import DetInferencer 
-
+import sys
 import cv2
 import matplotlib.pyplot as plt
 import random
@@ -25,56 +25,78 @@ def get_model_config(model_key: str):
     return MODEL_ZOO[model_key]["model_name"], MODEL_ZOO[model_key]["checkpoint"]
 
 
-random.seed(42)
+# random.seed(42)
 
 
 if __name__ == '__main__':
-
+    # Define paths
     data_dir = 'data/Dataset'
-    ann_path = os.path.join(data_dir, 'annotations')
-    train_ann_path = os.path.join(ann_path, 'annotations_train.json')
-    test_path = os.path.join(data_dir, 'test2017')
-    train_path = os.path.join(data_dir, 'train2017')
-    val_path = os.path.join(data_dir, 'val2017')
+    if not os.path.exists(data_dir):
+        print("Error: invalid paths.")
+        sys.exit(1)  # stop the program
     
-    # Initialize COCO
-    coco = COCO(train_ann_path)
+    ## config ##
+    dataset = 'val' # train, test, val
+    use_fixed_ann = True
+    ############
+    
+    ann_dir_path = os.path.join(data_dir, 'annotations')
+    data_dir_path = os.path.join(data_dir, f'{dataset}2017')
+    
+    if (not os.path.exists(ann_dir_path) or
+        not os.path.exists(data_dir_path)):
+        print("Error: invalid paths.")
+        sys.exit(1)  # stop the program
+    
+    s_fixed_ann = "_fixed" if use_fixed_ann else ""
+    ann_path = os.path.join(ann_dir_path, f'annotations_{dataset}{s_fixed_ann}.json')
+    
+    if not os.path.exists(ann_path):
+        print("Error: invalid paths.")
+        sys.exit(1)  # stop the program
+        
+    print(f'Dataset: {dataset}')        
+    print(f'Input annotation file: {ann_path}')
+    
+    # Initialize COCO dataset
+    coco = COCO(ann_path)
     
     # Load the full annotation JSON so we can modify and save it
-    with open(train_ann_path, "r") as f:
+    with open(ann_path, "r") as f:
         coco_json = json.load(f)
     
-    # Build a mapping image_id → image dict
+    # Build a mapping image_id --> image dict
     image_dict = {img["id"]: img for img in coco_json["images"]}
 
 
-    # Get Crop car roi pretrained model
+    # Get pretrained model for cropping car roi 
     model_name, checkpoint = get_model_config(MODEL_KEY)
 
     print(f'Using model {MODEL_KEY}')
 
-    # --- Initialize and run inference ---
+    # Initialize and run inference
     inferencer = DetInferencer(model_name, checkpoint)
     class_names = inferencer.model.dataset_meta['classes']
 
     cropper = ROICropper(class_names)
 
-
     # Randomly choose k image IDs (no duplicates)
-    k = 10
+    k = 0
     img_ids = coco.getImgIds()
     chosen_ids = random.sample(img_ids, k)
+    subset_ids = chosen_ids if k else img_ids
 
-    print(f'Chosen ids: {chosen_ids}')
+    print(f'Chosen ids: {"all" if k == 0 else subset_ids}')
     
     times = []
     updated_annotations = {}
 
-    for img_id in chosen_ids:
-        img_info = coco.loadImgs(img_id)[0]        # Pick random image
-        # img_id = random.choice(coco.getImgIds())
-        # img_info = coco.loadImgs(img_id)[0]
-        img_path = os.path.join(train_path, img_info['file_name'])
+    #define th
+    th = 0.4
+    
+    for img_id in subset_ids:
+        img_info = coco.loadImgs(img_id)[0]        
+        img_path = os.path.join(data_dir_path, img_info['file_name'])
         output_path = os.path.join('output', f'id_{str(img_id)}')
         
         os.makedirs(output_path, exist_ok=True)
@@ -153,8 +175,16 @@ if __name__ == '__main__':
         # Prepare cropper
         img_h, img_w = image.shape[:2]
 
-        roi, cls, class_name, score = cropper.extract_roi(bboxes, scores, labels, img_w, img_h)
+       
+        roi_info = cropper.extract_roi(bboxes, scores, labels, img_w, img_h, th, mode='training')
+
+        if roi_info is None:
+            # ROI rejected in training mode → skip image
+            continue
         
+        roi, cls, class_name, score = roi_info
+
+
         x1, y1, x2, y2 = map(int, roi)
         roi_coco_format = [x1, y1, x2 - x1, y2 - y1]
         
@@ -182,16 +212,22 @@ if __name__ == '__main__':
         plt.imsave(os.path.join(output_path, f'roi_img_{MODEL_KEY}.jpg'), result_roi)
 
     
-    output_ann_path = os.path.join(ann_path, "annotations_train_with_roi.json")
+    output_ann_path = os.path.join(ann_dir_path, f"annotations_{dataset}{s_fixed_ann}_with_roi.json")
     
+
     with open(output_ann_path, "w") as f:
         json.dump(coco_json, f, indent=2)
     
-    print(f"Saved updated COCO annotations with ROI → {output_ann_path}")
+    print(f"Saved updated COCO annotations with ROI --> {output_ann_path}")
 
 
     stats = cropper.get_statistics()
-    print(stats)
+    cropper.show_hist(os.path.join('output', f'hist_th_{th}_{MODEL_KEY}.jpg'))
+
+    print(f"\nSUMMARY STATS for model {MODEL_KEY}, {dataset} dataset:")
+    for k, v in stats.items():
+        print(f"{k:30s} : {v}")
+    
     avg_time = np.mean(times) if times else 0
     print(f'Model {MODEL_KEY} took {avg_time:.03f} seconds in average over {k} datapoints.')
 

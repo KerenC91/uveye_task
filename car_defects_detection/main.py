@@ -80,24 +80,24 @@ if __name__ == '__main__':
 
     cropper = ROICropper(class_names)
 
-    # Randomly choose k image IDs (no duplicates)
-    k = 0
+    # Randomly choose data_size image IDs (no duplicates)
+    data_size = 0
     img_ids = coco.getImgIds()
-    chosen_ids = random.sample(img_ids, k)
-    subset_ids = chosen_ids if k else img_ids
+    chosen_ids = random.sample(img_ids, data_size)
+    subset_ids = chosen_ids if data_size else img_ids
 
-    print(f'Chosen ids: {"all" if k == 0 else subset_ids}')
+    print(f'Chosen ids: {"all" if data_size == 0 else subset_ids}')
     
     times = []
     updated_annotations = {}
 
     #define th
-    th = 0.4
+    th = 0.3
     
     for img_id in subset_ids:
         img_info = coco.loadImgs(img_id)[0]        
         img_path = os.path.join(data_dir_path, img_info['file_name'])
-        output_path = os.path.join('output', f'id_{str(img_id)}')
+        output_path = os.path.join('output', f'{str(img_id)}')
         
         os.makedirs(output_path, exist_ok=True)
 
@@ -127,13 +127,13 @@ if __name__ == '__main__':
             cv2.putText(image_manipulated, cat_name, (int(x), int(y) - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
         
         # Display
-        plt.figure(figsize=(8, 8))
-        plt.imshow(image)
-        plt.title(f"{img_info['file_name']}  |  ID: {img_id}")
-        plt.axis('off')
-        plt.savefig(os.path.join(output_path, 'image.jpg'))
+        # plt.figure(figsize=(8, 8))
+        # plt.imshow(image)
+        # plt.title(f"{img_info['file_name']}  |  ID: {img_id}")
+        # plt.axis('off')
+        # plt.savefig(os.path.join(output_path, 'image.jpg'))
     
-        plt.show() 
+        # plt.show() 
         
         # plt.figure(figsize=(8, 8))
         # plt.imshow(image_manipulated)
@@ -176,7 +176,7 @@ if __name__ == '__main__':
         img_h, img_w = image.shape[:2]
 
        
-        roi_info = cropper.extract_roi(bboxes, scores, labels, img_w, img_h, th, mode='training')
+        roi_info = cropper.extract_roi(bboxes, scores, labels, img_w, img_h, img_id, th, mode='training')
 
         if roi_info is None:
             # ROI rejected in training mode → skip image
@@ -202,14 +202,14 @@ if __name__ == '__main__':
         # Crop ROI from the original image
         roi_img = image[y1:y2, x1:x2]
 
-        plt.figure(figsize=(8, 8))
-        plt.imshow(roi_img)
-        plt.title(f"result_roi {img_info['file_name']}  |  ID: {img_id}")
-        plt.axis('off')
-        plt.savefig(os.path.join(output_path, f'roi_img_{MODEL_KEY}.jpg'))
+        # plt.figure(figsize=(8, 8))
+        # plt.imshow(roi_img)
+        # plt.title(f"result_roi {img_info['file_name']}  |  ID: {img_id}")
+        # plt.axis('off')
+        # plt.savefig(os.path.join(output_path, f'roi_img_{MODEL_KEY}.jpg'))
     
-        plt.show()  
-        plt.imsave(os.path.join(output_path, f'roi_img_{MODEL_KEY}.jpg'), result_roi)
+        # plt.show()  
+        plt.imsave(os.path.join(output_path, f'cropped_roi_img_{MODEL_KEY}.jpg'), roi_img)
 
     
     output_ann_path = os.path.join(ann_dir_path, f"annotations_{dataset}{s_fixed_ann}_with_roi.json")
@@ -224,12 +224,12 @@ if __name__ == '__main__':
     stats = cropper.get_statistics()
     cropper.show_hist(os.path.join('output', f'hist_th_{th}_{MODEL_KEY}.jpg'))
 
-    print(f"\nSUMMARY STATS for model {MODEL_KEY}, {dataset} dataset:")
+    print(f"\nSUMMARY STATS for model {MODEL_KEY}, th={th}, {dataset} dataset:")#, added boat, airplane, train classes:")
     for k, v in stats.items():
         print(f"{k:30s} : {v}")
     
     avg_time = np.mean(times) if times else 0
-    print(f'Model {MODEL_KEY} took {avg_time:.03f} seconds in average over {k} datapoints.')
+    print(f'Model {MODEL_KEY} took {avg_time:.03f} seconds in average over {len(subset_ids)} datapoints.')
 
     print('done')
     

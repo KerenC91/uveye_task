@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 
 class ROICropper:
     # Vehicle classes in COCO
-    VEHICLE_CLASSES = {2, 7, 5, 3}   # car, truck, bus, motorcycle
+    VEHICLE_CLASSES = {2, 7, 5, 3}#, 8, 4, 6}   # car, truck, bus, motorcycle, boat, airplane, train
 
     def __init__(self, class_names=None):
         self.class_counter = defaultdict(int)
@@ -16,14 +16,21 @@ class ROICropper:
         self.class_scores_sum = defaultdict(float)
         self.global_scores = []
         self.class_names = class_names
+        self.full_area_ids = []
+        self.rejected_low_score_ids = []
+        self.accepted_ids = []
+        self.rejected_area_ratio_ids = []
+        self.rejected_zero_size_ids = []
+
 
     def extract_roi(self, 
                     bboxes, scores, labels, 
-                    img_w, img_h, 
+                    img_w, img_h, img_id,
                     th=0.5, 
                     mode='training',
                     min_area_ratio=0.05,
-                    max_area_ratio=1.0):
+                    max_area_ratio=1.0,
+                    dominance_ratio=1.8):
         """
         bboxes: Nx4 array [x1, y1, x2, y2]
         scores: Nx array
@@ -38,59 +45,91 @@ class ROICropper:
         # ======================================================
         if bboxes is None or len(bboxes) == 0:
             self.full_area_counter += 1
+            self.full_area_ids.append(img_id)
             return None if mode == 'training' else ([0, 0, img_w, img_h], None, None, 0.0)
     
         # ======================================================
         # 2. Filter only vehicle classes
         # ======================================================
-        valid_indices = [i for i, lbl in enumerate(labels) 
-                         if lbl in ROICropper.VEHICLE_CLASSES]
+        valid_indices = [i for i, lbl in enumerate(labels) if lbl in ROICropper.VEHICLE_CLASSES]
+    
         if len(valid_indices) == 0:
             self.full_area_counter += 1
+            self.full_area_ids.append(img_id)
             return None if mode == 'training' else ([0, 0, img_w, img_h], None, None, 0.0)
     
         # ======================================================
-        # 3. Pick highest-confidence bounding box
+        # 3. Filter by score first
         # ======================================================
         valid_bboxes = bboxes[valid_indices]
         valid_scores = scores[valid_indices]
         valid_labels = labels[valid_indices]
     
-        idx = np.argmax(valid_scores)
-        x1, y1, x2, y2 = valid_bboxes[idx]
-        cls = int(valid_labels[idx])
-        score = float(valid_scores[idx])
+        score_mask = valid_scores >= th
+        if not np.any(score_mask):
+            self.rejected_low_score += 1
+            self.rejected_low_score_ids.append(img_id)
+            return None if mode == 'training' else ([0, 0, img_w, img_h], None, None, 0.0)
+    
+        bboxes_thr = valid_bboxes[score_mask]
+        scores_thr = valid_scores[score_mask]
+        labels_thr = valid_labels[score_mask]
+    
+        # ======================================================
+        # 4. Compute areas of *all* thresholded detections
+        # ======================================================
+        b = bboxes_thr.copy()
+        b[:, 0] = np.clip(b[:, 0], 0, img_w - 1)   # x1
+        b[:, 2] = np.clip(b[:, 2], 0, img_w - 1)   # x2
+        b[:, 1] = np.clip(b[:, 1], 0, img_h - 1)   # y1
+        b[:, 3] = np.clip(b[:, 3], 0, img_h - 1)   # y2
+        areas = (b[:, 2] - b[:, 0]) * (b[:, 3] - b[:, 1])
+        sorted_indices = np.argsort(-areas)  # descending
+    
+        largest_idx = sorted_indices[0]
+        largest_area = areas[largest_idx]
+    
+        # # Determine second largest area
+        # if len(sorted_indices) > 1:
+        #     second_area = areas[sorted_indices[1]]
+        # else:
+        #     second_area = 0
+    
+        # # Check dominance constraint
+        # if second_area > 0 and largest_area < dominance_ratio * second_area:
+        #     # Foreground not dominant enough → danger of picking wrong car
+        #     self.rejected_area_ratio += 1
+        #     self.rejected_area_ratio_ids.append(img_id)
+        #     return None if mode == 'training' else ([0, 0, img_w, img_h], None, None, 0.0)
+    
+        # ======================================================
+        # 5. Get ROI from largest-area box
+        # ======================================================
+        x1, y1, x2, y2 = b[largest_idx]
+        cls = int(labels_thr[largest_idx])
+        score = float(scores_thr[largest_idx])
         class_name = self.class_names[cls] if self.class_names else None
     
-        # ======================================================
-        # 4. Score threshold check
-        # ======================================================
-        if score < th:
-            self.rejected_low_score += 1
-            return None if mode == 'training' else ([0, 0, img_w, img_h], None, None, score)
-    
-        # ======================================================
-        # 5. Fix bounding box numeric issues (clip + enforce ordering)
-        # ======================================================
-        # Clip to image boundaries
+        # ------------------------------------------------------
+        # Clip bounding box & ensure valid size
+        # ------------------------------------------------------
         x1 = max(0, min(int(x1), img_w - 1))
-        x2 = max(0, min(int(x2), img_w))
+        x2 = max(0, min(int(x2), img_w - 1))
         y1 = max(0, min(int(y1), img_h - 1))
-        y2 = max(0, min(int(y2), img_h))
+        y2 = max(0, min(int(y2), img_h - 1))
     
-        # Enforce x1 < x2 and y1 < y2
         if x2 <= x1 or y2 <= y1:
             self.rejected_zero_size += 1
+            self.rejected_zero_size_ids.append(img_id)
             return None if mode == 'training' else ([0, 0, img_w, img_h], None, None, score)
     
         # ======================================================
-        # 6. Validate Area Ratio
+        # 6. Validate Area Ratio relative to image
         # ======================================================
-        area = (x2 - x1) * (y2 - y1)
-        area_ratio = area / (img_w * img_h)
-    
+        area_ratio = largest_area / (img_w * img_h)
         if not (min_area_ratio <= area_ratio <= max_area_ratio):
             self.rejected_area_ratio += 1
+            self.rejected_area_ratio_ids.append(img_id)
             return None if mode == 'training' else ([0, 0, img_w, img_h], None, None, score)
     
         # ======================================================
@@ -102,8 +141,10 @@ class ROICropper:
         self.class_scores_sum[class_name] += score
         self.global_scores.append(score)
         self.accepted_counter += 1
+        self.accepted_ids.append(img_id)
     
         return roi, cls, class_name, score
+
 
 
 
@@ -129,7 +170,12 @@ class ROICropper:
             "rejected_low_score": self.rejected_low_score,
             "accepted_counter": self.accepted_counter, 
             "rejected_area_ratio": self.rejected_area_ratio,
-            "rejected_zero_size": self.rejected_zero_size
+            "rejected_zero_size": self.rejected_zero_size,
+            "full_area_ids": self.full_area_ids,
+            "rejected_low_score_ids": self.rejected_low_score_ids,
+            "accepted_ids": self.accepted_ids,
+            "rejected_area_ratio_ids": self.rejected_area_ratio_ids,
+            "rejected_zero_size_ids": self.rejected_zero_size_ids
         }
     
     def show_hist(self, filename):

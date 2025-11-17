@@ -30,6 +30,7 @@ class ROICropper:
         self.rejected_zero_size = 0
         self.accepted_counter = 0
         self.rejected_out_of_boundaries_counter = 0
+        self.rejected_unallowed_classes_counter = 0
 
         # Image ID tracking
         self.full_area_ids = []
@@ -38,6 +39,7 @@ class ROICropper:
         self.rejected_zero_size_ids = []
         self.rejected_out_of_boundaries_ids = []
         self.accepted_ids = []
+        self.rejected_unallowed_classes_ids = []
         self.class_ids = defaultdict(list)
         
         # Score buckets: store (img_id, score)
@@ -86,6 +88,25 @@ class ROICropper:
             self.full_area_ids.append(img_id)
             return None if mode == "training" else ([0, 0, img_w, img_h], None, None, 0.0)
 
+        # -----------------------------------------------------
+        # Inspect unallowed classes
+        # -----------------------------------------------------
+        bad_idx = [i for i, lbl in enumerate(labels) if lbl in params.invalid_classes]
+        bad_b = None
+        
+        if len(bad_idx) >= 0:
+            bad_bboxes = bboxes[bad_idx]
+            bad_scores = scores[bad_idx]
+            bad_labels = labels[bad_idx]
+            
+            bad_mask = bad_scores >= params.bad_threshold 
+            
+            if np.any(bad_mask):
+                bad_b = bad_bboxes[bad_mask].copy()
+                
+                # remove if area overlapps with roi
+                
+                
         # -----------------------------------------------------
         # 2. Filter by allowed vehicle classes
         # -----------------------------------------------------
@@ -173,6 +194,17 @@ class ROICropper:
                 return None if mode == 'training' else (
                     [0,0,img_w,img_h], None, None, score
                 )
+            
+            # Reject if overlaps with confident unallowed class
+            if bad_b is not None:
+                for b in bad_b:
+                    if self.boxes_overlap(b, [ann_x1, ann_y1, ann_x2, ann_y2]):    
+                        self.rejected_unallowed_classes_counter += 1
+                        self.rejected_unallowed_classes_ids.append(img_id)
+                        
+                        return None if mode == 'training' else (
+                            [0,0,img_w,img_h], None, None, score
+                            )
         # -----------------------------------------------------
         # 6. Validate area ratio (min/max allowed)
         # -----------------------------------------------------
@@ -210,6 +242,47 @@ class ROICropper:
     #         sx2 <= bx2 and
     #         sy2 <= by2
     #     )
+
+    def boxes_overlap(self, A, B, min_ratio=0.1):
+        """
+        Check if two XYXY-format boxes overlap with required overlap ratio.
+    
+        A: [Ax1, Ay1, Ax2, Ay2]    <-- bad box
+        B: [Bx1, By1, Bx2, By2]    <-- ann box
+        min_ratio: required overlap ratio relative to area(B)
+    
+        Returns True only if: intersection_area(A,B) > min_ratio * area(B)
+        """
+    
+        Ax1, Ay1, Ax2, Ay2 = A
+        Bx1, By1, Bx2, By2 = B
+    
+        # Check validity of boxes
+        if Ax2 <= Ax1 or Ay2 <= Ay1:
+            return False
+        if Bx2 <= Bx1 or By2 <= By1:
+            return False
+    
+        # Compute intersection coordinates
+        ix1 = max(Ax1, Bx1)
+        iy1 = max(Ay1, By1)
+        ix2 = min(Ax2, Bx2)
+        iy2 = min(Ay2, By2)
+    
+        # No intersection
+        if ix2 <= ix1 or iy2 <= iy1:
+            return False
+    
+        # Intersection area
+        inter_area = (ix2 - ix1) * (iy2 - iy1)
+    
+        # Area of annotation box B
+        B_area = (Bx2 - Bx1) * (By2 - By1)
+    
+        # Required: intersection > 10% of B
+        return inter_area > (min_ratio * B_area)
+
+
 
     def is_zero_bbox(self, bbox):
         x, y, w, h = bbox
@@ -282,6 +355,7 @@ class ROICropper:
             "rejected_area_ratio": self.rejected_area_ratio,
             "rejected_zero_size": self.rejected_zero_size,
             "rejected_out_of_boundaries_counter": self.rejected_out_of_boundaries_counter,
+            "rejected_unallowed_classes_counter": self.rejected_unallowed_classes_counter,
 
             "full_area_ids": self.full_area_ids,
             "rejected_low_score_ids": self.rejected_low_score_ids,
@@ -290,6 +364,7 @@ class ROICropper:
             "self.class_ids": self.class_ids,
             "rejected_out_of_boundaries_ids": self.rejected_out_of_boundaries_ids,
             "accepted_ids": self.accepted_ids,
+            "rejected_unallowed_classes_ids": self.rejected_unallowed_classes_ids,
             
             "score_bucket_0_1": self.score_bucket_0_1,
             "score_bucket_1_2": self.score_bucket_1_2,

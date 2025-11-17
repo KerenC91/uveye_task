@@ -18,13 +18,14 @@ params = Params(
     # Model + inference settings
     # ------------------------------------------------------------
     model_key="rtmdet_x",            # choose from model_zoo keys
-    score_threshold=0.3,           # detection confidence threshold
+    score_threshold=0.2,           # detection confidence threshold
+    bad_threshold=0.5,              # for person class
     save_debug_vis=True,           # save visualization and ROI jpeg
 
     # ------------------------------------------------------------
     # Output settings
     # ------------------------------------------------------------
-    output_root="output_rtmdet_x_th_0.3_largest_score_cropped_def_box_more_cls",
+    output_root="output_rtmdet_x_th_0.2_largest_score_cropped_def_box_more_cls_rem_per",
 
     # ------------------------------------------------------------
     # ROI validation settings
@@ -37,7 +38,7 @@ params = Params(
     # (car=2, motorcycle=3, bus=5, truck=7, boat=8, airplane=4)
     # ------------------------------------------------------------
     vehicle_classes={2, 3, 5, 7, 8, 4},
-
+    invalid_classes={0}, #person
     # ------------------------------------------------------------
     # Model Zoo
     # ------------------------------------------------------------

@@ -123,10 +123,15 @@ class ROICropper:
         b[:, 3] = np.clip(b[:, 3], 0, img_h - 1)   # y2
 
         areas = (b[:, 2] - b[:, 0]) * (b[:, 3] - b[:, 1])
-        idx_sorted = np.argsort(-areas)    # desc
+        image_area = img_w * img_h
+        
+        normalized_areas = areas / image_area
+        
+        rank_score = np.sqrt(normalized_areas) * sc
+        idx_sorted = np.argsort(-rank_score)    # desc
 
         largest_idx = idx_sorted[0]
-        largest_area = float(areas[largest_idx])
+        # largest_score = float(rank_score[largest_idx])
 
         # -----------------------------------------------------
         # 5. Extract the largest ROI
@@ -136,16 +141,14 @@ class ROICropper:
 		# Clip x1,y1 to valid pixel indices (0 .. w-1 / 0 .. h-1)
         x1 = max(0, min(int(x1), img_w - 1))
         y1 = max(0, min(int(y1), img_h - 1))
-
-		# Clip x2,y2 to valid exclusive upper bound (0 .. w / 0 .. h)
-        x2 = max(0, min(int(x2), img_w))
-        y2 = max(0, min(int(y2), img_h))
+        x2 = max(0, min(int(x2), img_w - 1))
+        y2 = max(0, min(int(y2), img_h - 1))
 
         cls = int(lb[largest_idx])
         score = float(sc[largest_idx])
         class_name = self.class_names[cls] if self.class_names else None
         
-        # Final safety check: ensure non-zero ROI
+        # Ensure non-zero ROI
         if x2 <= x1 or y2 <= y1:
             self.rejected_zero_size += 1
             self.rejected_zero_size_ids.append(img_id)
@@ -159,10 +162,11 @@ class ROICropper:
             ann_y1 = int(ay)
             ann_x2 = int(ax + aw)
             ann_y2 = int(ay + ah)
-        
-            if not self.bbox_contains([x1, y1, x2, y2],
-                                 [ann_x1, ann_y1, ann_x2, ann_y2]):
-                # Annotation is outside predicted ROI: reject
+
+            clipped_ann_bbox = self.crop_ann_to_roi([x1, y1, x2, y2],
+                                 [ann_x1, ann_y1, ann_x2, ann_y2])
+            if self.is_zero_bbox(clipped_ann_bbox):
+                # Annotation is way outside predicted ROI: reject
                 self.rejected_out_of_boundaries_counter += 1
                 self.rejected_out_of_boundaries_ids.append(img_id)
         
@@ -172,8 +176,7 @@ class ROICropper:
         # -----------------------------------------------------
         # 6. Validate area ratio (min/max allowed)
         # -----------------------------------------------------
-        image_area = img_w * img_h
-        area_ratio = largest_area / image_area
+        area_ratio = normalized_areas[largest_idx]
 
         if not (params.min_area_ratio <= area_ratio <= params.max_area_ratio):
             self.rejected_area_ratio += 1
@@ -197,17 +200,60 @@ class ROICropper:
         
         return roi, cls, class_name, score
     
-    def bbox_contains(self, big_roi, small_box):
+    # def bbox_contains(self, big_roi, small_box):
+    #     bx1, by1, bx2, by2 = big_roi
+    #     sx1, sy1, sx2, sy2 = small_box
+    
+    #     return (
+    #         sx1 >= bx1 and
+    #         sy1 >= by1 and
+    #         sx2 <= bx2 and
+    #         sy2 <= by2
+    #     )
+
+    def is_zero_bbox(self, bbox):
+        x, y, w, h = bbox
+        return (w == 0) or (h == 0)
+
+
+    def crop_ann_to_roi(self, big_roi, small_box, f=0.65):
+        """
+        Crop annotation bbox so that it fits inside ROI.
+    
+        big_roi:  [x1, y1, x2, y2]
+        small_box: [x1, y1, x2, y2]
+    
+        Rules:
+        - Fully outside: return [0,0,0,0]
+        - Partially inside: clipped to ROI
+        - If clipped width < f * org width: [0,0,0,0]
+        
+        Returns a COCO-format bbox: [x, y, w, h]
+        """
         bx1, by1, bx2, by2 = big_roi
         sx1, sy1, sx2, sy2 = small_box
+        
+        org_sbox_area = (sx2 - sx1) * (sy2 - sy1)
+        # Clip annotation into ROI
+        cx1 = max(bx1, sx1)
+        cy1 = max(by1, sy1)
+        cx2 = min(bx2, sx2)
+        cy2 = min(by2, sy2)
     
-        return (
-            sx1 >= bx1 and
-            sy1 >= by1 and
-            sx2 <= bx2 and
-            sy2 <= by2
-        )
-
+        # Completely outside
+        if cx2 <= cx1 or cy2 <= cy1:
+            return [0, 0, 0, 0]
+    
+        # Width / height
+        cw = cx2 - cx1
+        ch = cy2 - cy1
+    
+        # If too small: discard annotation
+        if (cw * ch) < f * org_sbox_area:
+            return [0, 0, 0, 0]
+    
+        # Valid clipped bbox in COCO format
+        return [int(cx1), int(cy1), int(cw), int(ch)]
 
     # ----------------------------------------------------------------------
     # STATISTICS

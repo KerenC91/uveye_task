@@ -6,6 +6,8 @@ import random
 import cv2
 import torch
 import numpy as np
+import matplotlib
+matplotlib.use("Agg")   # non-GUI backend for servers
 import matplotlib.pyplot as plt
 from pycocotools.coco import COCO
 from mmdet.apis import DetInferencer

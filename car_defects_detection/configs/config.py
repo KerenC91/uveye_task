@@ -18,13 +18,13 @@ params = Params(
     # Model + inference settings
     # ------------------------------------------------------------
     model_key="rtmdet_x",            # choose from model_zoo keys
-    score_threshold=0.0,           # detection confidence threshold
+    score_threshold=0.3,           # detection confidence threshold
     save_debug_vis=True,           # save visualization and ROI jpeg
 
     # ------------------------------------------------------------
     # Output settings
     # ------------------------------------------------------------
-    output_root="output_rtmdet_x_th_0.0",
+    output_root="output_rtmdet_x_th_0.3_largest_score_cropped_def_box_more_cls",
 
     # ------------------------------------------------------------
     # ROI validation settings
@@ -34,9 +34,9 @@ params = Params(
 
     # ------------------------------------------------------------
     # COCO class IDs considered "vehicles"
-    # (car=2, motorcycle=3, bus=5, truck=7)
+    # (car=2, motorcycle=3, bus=5, truck=7, boat=8, airplane=4)
     # ------------------------------------------------------------
-    vehicle_classes={2, 3, 5, 7},
+    vehicle_classes={2, 3, 5, 7, 8, 4},
 
     # ------------------------------------------------------------
     # Model Zoo

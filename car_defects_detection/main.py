@@ -1,235 +1,240 @@
-from mmengine.utils import get_git_hash
-from mmengine.utils.dl_utils import collect_env as collect_base_env
-
-import mmdet
-
-from mmdet.apis import DetInferencer 
-import sys
-import cv2
-import matplotlib.pyplot as plt
-import random
-from pycocotools.coco import COCO
 import os
-import numpy as np
-import time 
-from configs.models_registry import MODEL_ZOO
-from configs.config import MODEL_KEY
-from utils.roi_cropper import ROICropper
-import torch 
+import sys
 import json
+import time
+import random
+import cv2
+import torch
+import numpy as np
+import matplotlib.pyplot as plt
+from pycocotools.coco import COCO
+from mmdet.apis import DetInferencer
+import yaml
+
+from configs.config import params
+from utils.roi_cropper import ROICropper
 
 
+# ------------------------------------------------------------
+# Utility to fetch model config
+# ------------------------------------------------------------
 def get_model_config(model_key: str):
-    if model_key not in MODEL_ZOO:
-        raise ValueError(f"Unknown model '{model_key}'. Available: {list(MODEL_ZOO.keys())}")
-    return MODEL_ZOO[model_key]["model_name"], MODEL_ZOO[model_key]["checkpoint"]
+    if model_key not in params.model_key:
+        raise ValueError(
+            f"Unknown model '{model_key}'. Available: {list(params.model_zoo.keys())}"
+        )
+    cfg = params.model_zoo[model_key]
+    return cfg["model_name"], cfg["checkpoint"]
 
 
-# random.seed(42)
-
-
+# ------------------------------------------------------------
+# Main
+# ------------------------------------------------------------
 if __name__ == '__main__':
-    # Define paths
-    data_dir = 'data/Dataset'
-    if not os.path.exists(data_dir):
-        print("Error: invalid paths.")
-        sys.exit(1)  # stop the program
-    
-    ## config ##
-    dataset = 'val' # train, test, val
-    use_fixed_ann = True
-    ############
-    
-    ann_dir_path = os.path.join(data_dir, 'annotations')
-    data_dir_path = os.path.join(data_dir, f'{dataset}2017')
-    
-    if (not os.path.exists(ann_dir_path) or
-        not os.path.exists(data_dir_path)):
-        print("Error: invalid paths.")
-        sys.exit(1)  # stop the program
-    
-    s_fixed_ann = "_fixed" if use_fixed_ann else ""
-    ann_path = os.path.join(ann_dir_path, f'annotations_{dataset}{s_fixed_ann}.json')
-    
+
+    # Validate path
+    if not os.path.exists(params.data_dir):
+        print("Error: dataset path doesn't exist.")
+        sys.exit(1)
+
+    ann_dir = os.path.join(params.data_dir, "annotations")
+    img_dir = os.path.join(params.data_dir, f"{params.dataset}2017")
+
+    if not os.path.exists(ann_dir) or not os.path.exists(img_dir):
+        print("Error: missing annotation or image folder.")
+        sys.exit(1)
+
+    # Build annotation filename
+    suffix = "_fixed" if params.use_fixed_ann else ""
+    ann_path = os.path.join(ann_dir, f"annotations_{params.dataset}{suffix}.json")
+
     if not os.path.exists(ann_path):
-        print("Error: invalid paths.")
-        sys.exit(1)  # stop the program
-        
-    print(f'Dataset: {dataset}')        
-    print(f'Input annotation file: {ann_path}')
-    
-    # Initialize COCO dataset
+        print("Error: annotation file not found:", ann_path)
+        sys.exit(1)
+
+    print(f"\nDataset: {params.dataset}")
+    print(f"Input annotation file: {ann_path}\n")
+
+    # ============================================================
+    #                    LOAD DATASET + JSON
+    # ============================================================
     coco = COCO(ann_path)
-    
-    # Load the full annotation JSON so we can modify and save it
+
     with open(ann_path, "r") as f:
         coco_json = json.load(f)
-    
-    # Build a mapping image_id --> image dict
+
+    # Map image_id to image dict (for updating entries)
     image_dict = {img["id"]: img for img in coco_json["images"]}
 
+    # ============================================================
+    #                    LOAD MODEL + CROP LOGIC
+    # ============================================================
+    model_name, checkpoint = get_model_config(params.model_key)
+    print(f"Using model: {params.model_key}")
 
-    # Get pretrained model for cropping car roi 
-    model_name, checkpoint = get_model_config(MODEL_KEY)
-
-    print(f'Using model {MODEL_KEY}')
-
-    # Initialize and run inference
     inferencer = DetInferencer(model_name, checkpoint)
-    class_names = inferencer.model.dataset_meta['classes']
-
+    class_names = inferencer.model.dataset_meta["classes"]
     cropper = ROICropper(class_names)
 
-    # Randomly choose data_size image IDs (no duplicates)
-    data_size = 0
+    # Choose subset of image IDs
     img_ids = coco.getImgIds()
-    chosen_ids = random.sample(img_ids, data_size)
-    subset_ids = chosen_ids if data_size else img_ids
+    subset_ids = (
+        random.sample(img_ids, params.num_images)
+        if params.num_images > 0
+        else img_ids
+    )
 
-    print(f'Chosen ids: {"all" if data_size == 0 else subset_ids}')
-    
+    print(f"Selected images: {'all' if params.num_images == 0 else len(subset_ids)}")
+
     times = []
-    updated_annotations = {}
 
-    #define th
-    th = 0.3
-    
+    # Ensure output root exists
+    os.makedirs(params.output_root, exist_ok=True)
+
+    # ============================================================
+    #                        MAIN LOOP
+    # ============================================================
     for img_id in subset_ids:
-        img_info = coco.loadImgs(img_id)[0]        
-        img_path = os.path.join(data_dir_path, img_info['file_name'])
-        output_path = os.path.join('output', f'{str(img_id)}')
-        
-        os.makedirs(output_path, exist_ok=True)
 
-        # Load image
-        image = cv2.imread(img_path)
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        image_manipulated = image.copy()
-        
-        # Load annotations for this image
-        anns = coco.loadAnns(coco.getAnnIds(imgIds=img_id))
-        
-        # Overlay segmentations and bounding boxes
-        for ann in anns:
-            color = tuple(np.random.randint(0, 255, 3).tolist())
-            
-            # Draw segmentation mask (if exists)
-            if 'segmentation' in ann and ann['segmentation']:
-                mask = coco.annToMask(ann)
-                image_manipulated[mask == 1] = image_manipulated[mask == 1] * 0.5 + np.array(color) * 0.5  # blend
-            
-            # Draw bounding box
-            x, y, w, h = ann['bbox']
-            cv2.rectangle(image_manipulated, (int(x), int(y)), (int(x + w), int(y + h)), color, 2)
-            
-            # Label with category name
-            cat_name = coco.loadCats(ann['category_id'])[0]['name']
-            cv2.putText(image_manipulated, cat_name, (int(x), int(y) - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
-        
-        # Display
-        # plt.figure(figsize=(8, 8))
-        # plt.imshow(image)
-        # plt.title(f"{img_info['file_name']}  |  ID: {img_id}")
-        # plt.axis('off')
-        # plt.savefig(os.path.join(output_path, 'image.jpg'))
-    
-        # plt.show() 
-        
-        # plt.figure(figsize=(8, 8))
-        # plt.imshow(image_manipulated)
-        # plt.title(f"{img_info['file_name']}  |  ID: {img_id}")
-        # plt.axis('off')
-        # plt.savefig(os.path.join(output_path, 'image_manipulated.jpg'))
-    
-        # plt.show()      
-        plt.imsave(os.path.join(output_path, 'image_manipulated.jpg'), image_manipulated)
+        # ------------------ Load image --------------------------
+        img_info = coco.loadImgs(img_id)[0]
+        img_path = os.path.join(img_dir, img_info["file_name"])
 
-        torch.cuda.synchronize()
-        start_time = time.time() 
-        
-        result = inferencer(image, return_vis=True)
-        
-        torch.cuda.synchronize()
-        end_time = time.time()
-        
-        times.append(end_time - start_time)
+        image = cv2.cvtColor(cv2.imread(img_path), cv2.COLOR_BGR2RGB)
+        if image is None:
+            print(f"Warning: failed to load {img_path}")
+            continue
 
-        
-        result_roi = result['visualization'][0]
-        pred = result['predictions'][0]
-    
-        bboxes = np.array(pred['bboxes'])
-        scores = np.array(pred['scores'])
-        labels = np.array(pred['labels'])
-    
-        # plt.figure(figsize=(8, 8))
-        # plt.imshow(result_roi)
-        # plt.title(f"result_roi {img_info['file_name']}  |  ID: {img_id}")
-        # plt.axis('off')
-        # plt.savefig(os.path.join(output_path, f'result_roi_{MODEL_KEY}.jpg'))
-    
-        # plt.show()   
-        
-        plt.imsave(os.path.join(output_path, f'result_roi_{MODEL_KEY}.jpg'), result_roi)
-
-        # Prepare cropper
         img_h, img_w = image.shape[:2]
 
-       
-        roi_info = cropper.extract_roi(bboxes, scores, labels, img_w, img_h, img_id, th, mode='training')
+        # ------------------ Output folder ------------------------
+        out_dir = os.path.join(params.output_root, str(img_id))
+        os.makedirs(out_dir, exist_ok=True)
+
+        # ------------------ Load anns -----------------------------
+        anns = coco.loadAnns(coco.getAnnIds(imgIds=img_id))
+
+        # Optional debug mask visualization
+        if params.save_debug_vis:
+            vis_img = image.copy()
+
+            for ann in anns:
+                color = tuple(np.random.randint(0, 255, 3).tolist())
+
+                # blend segmentation mask
+                if ann.get("segmentation"):
+                    mask = coco.annToMask(ann)
+                    vis_img[mask == 1] = (
+                        vis_img[mask == 1] * 0.5 + np.array(color) * 0.5
+                    )
+
+                # draw bbox
+                x, y, w, h = ann["bbox"]
+                cv2.rectangle(vis_img, (int(x), int(y)), (int(x + w), int(y + h)), color, 2)
+                cat_name = coco.loadCats(ann["category_id"])[0]["name"]
+                cv2.putText(
+                    vis_img,
+                    cat_name,
+                    (int(x), int(y) - 5),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.6,
+                    color,
+                    2,
+                )
+
+            plt.imsave(os.path.join(out_dir, "image_manipulated.jpg"), vis_img)
+
+        # ============================================================
+        #                       DETECTOR RUN
+        # ============================================================
+        torch.cuda.synchronize()
+        start = time.time()
+
+        result = inferencer(image, return_vis=True)
+
+        torch.cuda.synchronize()
+        times.append(time.time() - start)
+
+        vis_pred = result["visualization"][0]
+        pred = result["predictions"][0]
+
+        # Save visualization
+        if params.save_debug_vis:
+            plt.imsave(
+                os.path.join(out_dir, f"detector_vis_{params.model_key}.jpg"),
+                vis_pred
+            )
+
+        bboxes = np.array(pred["bboxes"])
+        scores = np.array(pred["scores"])
+        labels = np.array(pred["labels"])
+
+        # ============================================================
+        #                   ROI EXTRACTION + UPDATE JSON
+        # ============================================================
+        roi_info = cropper.extract_roi(
+            ann["bbox"],
+            bboxes,
+            scores,
+            labels,
+            img_w,
+            img_h,
+            img_id,
+            mode="training",
+        )
 
         if roi_info is None:
-            # ROI rejected in training mode → skip image
-            continue
-        
-        roi, cls, class_name, score = roi_info
+            continue  # skip ROI for this image
 
+        roi, cls_id, cls_name, score = roi_info
 
+        # convert ROI to COCO [x,y,w,h]
         x1, y1, x2, y2 = map(int, roi)
-        roi_coco_format = [x1, y1, x2 - x1, y2 - y1]
-        
-        # Update COCO image entry
-        image_entry = image_dict[img_id]
-        image_entry["roi_bbox"] = roi_coco_format
-        image_entry["roi_class_id"] = cls
-        image_entry["roi_class_name"] = class_name
-        image_entry["roi_score"] = score
-        
-        
-        # roi = [x1, y1, x2, y2]
-        x1, y1, x2, y2 = map(int, roi)
-        
-        # Crop ROI from the original image
+        roi_coco = [x1, y1, x2 - x1, y2 - y1]
+
+        img_entry = image_dict[img_id]
+        img_entry["roi_bbox"] = roi_coco
+        img_entry["roi_class_id"] = cls_id
+        img_entry["roi_class_name"] = cls_name
+        img_entry["roi_score"] = score
+
+        # save cropped ROI image
         roi_img = image[y1:y2, x1:x2]
+        if params.save_debug_vis:
+            plt.imsave(os.path.join(out_dir, f"cropped_roi_{params.model_key}.jpg"), roi_img)
 
-        # plt.figure(figsize=(8, 8))
-        # plt.imshow(roi_img)
-        # plt.title(f"result_roi {img_info['file_name']}  |  ID: {img_id}")
-        # plt.axis('off')
-        # plt.savefig(os.path.join(output_path, f'roi_img_{MODEL_KEY}.jpg'))
-    
-        # plt.show()  
-        plt.imsave(os.path.join(output_path, f'cropped_roi_img_{MODEL_KEY}.jpg'), roi_img)
+    # ============================================================
+    #                SAVE UPDATED JSON WITH ROI
+    # ============================================================
+    out_json_path = os.path.join(
+        ann_dir, f"annotations_{ params.dataset}{suffix}_with_roi.json"
+    )
 
-    
-    output_ann_path = os.path.join(ann_dir_path, f"annotations_{dataset}{s_fixed_ann}_with_roi.json")
-    
-
-    with open(output_ann_path, "w") as f:
+    with open(out_json_path, "w") as f:
         json.dump(coco_json, f, indent=2)
-    
-    print(f"Saved updated COCO annotations with ROI --> {output_ann_path}")
 
+    print("\nSaved updated COCO annotations with ROI to")
+    print(out_json_path)
 
+    # ============================================================
+    #                    SHOW ROI CROP STATS
+    # ============================================================
     stats = cropper.get_statistics()
-    cropper.show_hist(os.path.join('output', f'hist_th_{th}_{MODEL_KEY}.jpg'))
+    cropper.show_hist(os.path.join(params.output_root, f"hist_th_{params.score_threshold}_{params.model_key}.jpg"))
 
-    print(f"\nSUMMARY STATS for model {MODEL_KEY}, th={th}, {dataset} dataset:")#, added boat, airplane, train classes:")
+    print(f"\nSUMMARY STATS  (model={params.model_key}, th={params.score_threshold}):")
     for k, v in stats.items():
-        print(f"{k:30s} : {v}")
-    
-    avg_time = np.mean(times) if times else 0
-    print(f'Model {MODEL_KEY} took {avg_time:.03f} seconds in average over {len(subset_ids)} datapoints.')
+        print(f"{k:30s}: {v}")
 
-    print('done')
+    print(f"\nAverage inference time: {np.mean(times):.3f} sec over {len(subset_ids)} images")
+    print("\nDone.")
+
+    # ------------------------------------
+    # Save stats to YAML file
+    # ------------------------------------
+    stats_path = os.path.join(params.output_root, f"summary_stats_{params.model_key}_th{params.score_threshold}.yml")
     
+    with open(stats_path, 'w') as f:
+        yaml.dump(stats, f, sort_keys=False, default_flow_style=False)
+    
+    print(f"\nSaved summary stats to: {stats_path}")

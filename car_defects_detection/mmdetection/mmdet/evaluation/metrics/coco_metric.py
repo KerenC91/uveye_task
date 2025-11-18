@@ -238,8 +238,15 @@ class CocoMetric(BaseMetric):
             for i, label in enumerate(labels):
                 data = dict()
                 data['image_id'] = image_id
+                print(f'image id: {image_id}')
                 data['bbox'] = self.xyxy2xywh(bboxes[i])
                 data['score'] = float(scores[i])
+                #keren
+                if (self.cat_ids[label] is None):
+                    raise KeyError(f'keren: {image_id}: none label')
+                if (self.cat_ids[label] > 6) or (self.cat_ids[label] < 1):
+                    raise KeyError(f'keren: label={self.cat_ids[label]}')      
+                #keren
                 data['category_id'] = self.cat_ids[label]
                 bbox_json_results.append(data)
 

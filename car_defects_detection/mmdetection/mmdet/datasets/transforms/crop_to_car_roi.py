@@ -9,14 +9,15 @@ class CropToCarROI:
 
         # img_info = results.get('img_info', {})
         roi = results.get('roi_bbox', None)
-
+        # id = results.get('img_id', None)
         if roi is None:
             # print("NO ROI NO ROI NO ROI NO ROI NO ROI NO ROI")
             # print(results)
             return results  # no ROI for this image
         # else:
-            # print("YES ROI YES ROI YES ROI YES ROI YES ROI YES ROI")
-            # print(roi)
+        #     print("YES ROI YES ROI YES ROI YES ROI YES ROI YES ROI")
+        #     print(id)
+        #     print(roi)
 
         # COCO format: x, y, width, height
         x1, y1, w, h = map(int, roi)

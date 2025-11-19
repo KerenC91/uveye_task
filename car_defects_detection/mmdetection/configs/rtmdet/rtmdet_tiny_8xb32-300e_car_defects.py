@@ -10,6 +10,7 @@ max_epochs = 1#20
 stage2_num_epochs = 1
 base_lr = 0.00008
 dataset_type = 'CocoDatasetWithROI'
+n_classes = 6
 
 metainfo = {
 'classes': ('dent', 'scratch', 'crack', 'glass shatter', 'lamp broken', 'tire flat', ),
@@ -55,20 +56,24 @@ test_dataloader = dict(
         data_prefix=dict(img='test2017/'),
         ann_file=data_root + '/annotations/annotations_test_postprocess.json'))
 
-val_evaluator = dict(ann_file=data_root + '/annotations/annotations_val_postprocess.json')
+val_evaluator = dict(ann_file=data_root + '/annotations/annotations_val_postprocess.json', metric=['bbox'],)#, 'segm'
 
-test_evaluator = dict(ann_file=data_root + '/annotations/annotations_test_postprocess.json')
+test_evaluator = dict(ann_file=data_root + '/annotations/annotations_test_postprocess.json', metric=['bbox'],)
 
-checkpoint = 'https://download.openmmlab.com/mmdetection/v3.0/rtmdet/cspnext_rsb_pretrain/cspnext-tiny_imagenet_600e.pth'  # noqa
+#checkpoint = 'https://download.openmmlab.com/mmdetection/v3.0/rtmdet/cspnext_rsb_pretrain/cspnext-tiny_imagenet_600e.pth'  # noqa
+
+# load COCO pre-trained weight
+load_from = root + '/checkpoints/rtmdet_tiny_8xb32-300e_coco_20220902_112414-78e30dcc.pth'
 
 model = dict(
     backbone=dict(
+	frozen_stages=0,
         deepen_factor=0.167,
         widen_factor=0.375,
         init_cfg=dict(
-            type='Pretrained', prefix='backbone.', checkpoint=checkpoint)),
+            type='Pretrained', prefix='backbone.', checkpoint=load_from)),
     neck=dict(in_channels=[96, 192, 384], out_channels=96, num_csp_blocks=1),
-    bbox_head=dict(in_channels=96, feat_channels=96, exp_on_reg=False))
+    bbox_head=dict(in_channels=96, feat_channels=96, exp_on_reg=False, num_classes=n_classes))
 
 # learning rate
 param_scheduler = [
@@ -142,9 +147,6 @@ custom_hooks = [
         switch_epoch=max_epochs - stage2_num_epochs,
         switch_pipeline=train_pipeline)
 ]
-
-# load COCO pre-trained weight
-load_from = root + '/checkpoints/rtmdet_tiny_8xb32-300e_coco_20220902_112414-78e30dcc.pth'
 
 train_cfg = dict(type='EpochBasedTrainLoop', max_epochs=max_epochs, val_interval=1)
 visualizer = dict(vis_backends=[dict(type='LocalVisBackend'),dict(type='TensorboardVisBackend')])

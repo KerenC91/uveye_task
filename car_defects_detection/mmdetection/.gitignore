@@ -1,0 +1,105 @@
+# -----------------------------
+# Python cache & bytecode
+# -----------------------------
+__pycache__/
+*.py[co]
+*.pyo
+*.pyd
+*.pdb
+
+# -----------------------------
+# Virtual environments
+# -----------------------------
+.venv/
+venv/
+env/
+ENV/
+
+# -----------------------------
+# Build / packaging
+# -----------------------------
+build/
+dist/
+*.egg-info/
+.eggs/
+*.egg
+
+# -----------------------------
+# Logs / runtime files
+# -----------------------------
+*.log
+*.out
+*.err
+pip-log.txt
+pip-delete-this-directory.txt
+
+# -----------------------------
+# Jupyter
+# -----------------------------
+.ipynb_checkpoints/
+
+# -----------------------------
+# IDE editors
+# -----------------------------
+# PyCharm / JetBrains
+.idea/
+*.iml
+
+# VSCode
+.vscode/
+
+# -----------------------------
+# OS files
+# -----------------------------
+.DS_Store
+Thumbs.db
+
+# -----------------------------
+# Coverage / testing
+# -----------------------------
+htmlcov/
+.coverage
+.coverage.*
+.cache/
+pytest_cache/
+
+# -----------------------------
+# MyPy / Type-checking
+# -----------------------------
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# -----------------------------
+# Linting
+# -----------------------------
+.pylint.d/
+.pytype/
+
+# -----------------------------
+# Environments / Dependencies
+# -----------------------------
+.pip/
+Pipfile.lock
+poetry.lock
+
+# -----------------------------
+# Local data / temp
+# -----------------------------
+*.sqlite3
+*.db
+tmp/
+temp/
+
+# -----------------------------
+# Git
+# -----------------------------
+.gitconfig
+
+# -----------------------------
+# Project-specific
+# -----------------------------
+checkpoints/
+data/
+work_dirs/
+

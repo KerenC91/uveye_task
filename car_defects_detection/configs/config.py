@@ -9,7 +9,7 @@ params = Params(
     # ------------------------------------------------------------
     # Dataset settings
     # ------------------------------------------------------------
-    data_dir="data/Dataset",
+    data_dir="mmdetection/data/Dataset",
     dataset="val",                 # options: "train", "val", "test"
     use_fixed_ann=True,            # load annotations_*_fixed.json if True
     num_images=0,                  # 0: process all images
@@ -20,12 +20,12 @@ params = Params(
     model_key="rtmdet_x",            # choose from model_zoo keys
     score_threshold=0.2,           # detection confidence threshold
     bad_threshold=0.5,              # for person class
-    save_debug_vis=True,           # save visualization and ROI jpeg
+    save_debug_vis=False,           # save visualization and ROI jpeg
 
     # ------------------------------------------------------------
     # Output settings
     # ------------------------------------------------------------
-    output_root="output_rtmdet_x_th_0.2_largest_score_cropped_def_box_more_cls_rem_per",
+    output_root="output/output_rtmdet_x_th_0.2_largest_score_cropped_def_box_more_cls_rem_per",
 
     # ------------------------------------------------------------
     # ROI validation settings
@@ -46,25 +46,25 @@ params = Params(
         "yolo_s": {
             "model_name": "yolox_s_8x8_300e_coco",
             "checkpoint": (
-                "checkpoints/yolox_s_8x8_300e_coco_20211121_095711-4592a793.pth"
+                "mmdetection/checkpoints/yolox_s_8x8_300e_coco_20211121_095711-4592a793.pth"
             ),
         },
         "yolo_x": {
             "model_name": "yolox_x_8x8_300e_coco",
             "checkpoint": (
-                "checkpoints/yolox_x_8x8_300e_coco_20211126_140254-1ef88d67.pth"
+                "mmdetection/checkpoints/yolox_x_8x8_300e_coco_20211126_140254-1ef88d67.pth"
             ),
         },
         "rtmdet_tiny": {
             "model_name": "rtmdet_tiny_8xb32-300e_coco",
             "checkpoint": (
-                "checkpoints/rtmdet_tiny_8xb32-300e_coco_20220902_112414-78e30dcc.pth"
+                "mmdetection/checkpoints/rtmdet_tiny_8xb32-300e_coco_20220902_112414-78e30dcc.pth"
             ),
         },
         "rtmdet_x": {
             "model_name": "rtmdet_x_8xb32-300e_coco",
             "checkpoint": (
-                "checkpoints/rtmdet_x_8xb32-300e_coco_20220715_230555-cc79b9ae.pth"
+                "mmdetection/checkpoints/rtmdet_x_8xb32-300e_coco_20220715_230555-cc79b9ae.pth"
             ),
         },
         # Add more models here if needed...

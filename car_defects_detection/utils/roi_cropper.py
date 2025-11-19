@@ -69,7 +69,7 @@ class ROICropper:
     # ----------------------------------------------------------------------
     def extract_roi(
         self,
-        ann_bbox, bboxes, scores, labels,
+        bboxes, scores, labels,
         img_w, img_h, img_id,
         mode="training"
     ):
@@ -92,20 +92,17 @@ class ROICropper:
         # Inspect unallowed classes
         # -----------------------------------------------------
         bad_idx = [i for i, lbl in enumerate(labels) if lbl in params.invalid_classes]
-        bad_b = None
         
         if len(bad_idx) >= 0:
-            bad_bboxes = bboxes[bad_idx]
             bad_scores = scores[bad_idx]
-            bad_labels = labels[bad_idx]
             
             bad_mask = bad_scores >= params.bad_threshold 
             
-            if np.any(bad_mask):
-                bad_b = bad_bboxes[bad_mask].copy()
-                
-                # remove if area overlapps with roi
-                
+            if np.any(bad_mask):      
+                self.rejected_unallowed_classes_counter += 1
+                self.rejected_unallowed_classes_ids.append(img_id)
+                return None if mode == 'training' else (
+                    [0,0,img_w,img_h], None, None, 0.0)
                 
         # -----------------------------------------------------
         # 2. Filter by allowed vehicle classes
@@ -174,37 +171,7 @@ class ROICropper:
             self.rejected_zero_size += 1
             self.rejected_zero_size_ids.append(img_id)
             return None if mode == "training" else ([0, 0, img_w, img_h], None, None, score)
-        # ======================================================
-        # annotation must be inside predicted ROI
-        # ======================================================
-        if ann_bbox is not None:
-            ax, ay, aw, ah = ann_bbox
-            ann_x1 = int(ax)
-            ann_y1 = int(ay)
-            ann_x2 = int(ax + aw)
-            ann_y2 = int(ay + ah)
-
-            clipped_ann_bbox = self.crop_ann_to_roi([x1, y1, x2, y2],
-                                 [ann_x1, ann_y1, ann_x2, ann_y2])
-            if self.is_zero_bbox(clipped_ann_bbox):
-                # Annotation is way outside predicted ROI: reject
-                self.rejected_out_of_boundaries_counter += 1
-                self.rejected_out_of_boundaries_ids.append(img_id)
-        
-                return None if mode == 'training' else (
-                    [0,0,img_w,img_h], None, None, score
-                )
             
-            # Reject if overlaps with confident unallowed class
-            if bad_b is not None:
-                for b in bad_b:
-                    if self.boxes_overlap(b, [ann_x1, ann_y1, ann_x2, ann_y2]):    
-                        self.rejected_unallowed_classes_counter += 1
-                        self.rejected_unallowed_classes_ids.append(img_id)
-                        
-                        return None if mode == 'training' else (
-                            [0,0,img_w,img_h], None, None, score
-                            )
         # -----------------------------------------------------
         # 6. Validate area ratio (min/max allowed)
         # -----------------------------------------------------
@@ -231,102 +198,6 @@ class ROICropper:
         self._update_score_buckets(img_id, score)
         
         return roi, cls, class_name, score
-    
-    # def bbox_contains(self, big_roi, small_box):
-    #     bx1, by1, bx2, by2 = big_roi
-    #     sx1, sy1, sx2, sy2 = small_box
-    
-    #     return (
-    #         sx1 >= bx1 and
-    #         sy1 >= by1 and
-    #         sx2 <= bx2 and
-    #         sy2 <= by2
-    #     )
-
-    def boxes_overlap(self, A, B, min_ratio=0.1):
-        """
-        Check if two XYXY-format boxes overlap with required overlap ratio.
-    
-        A: [Ax1, Ay1, Ax2, Ay2]    <-- bad box
-        B: [Bx1, By1, Bx2, By2]    <-- ann box
-        min_ratio: required overlap ratio relative to area(B)
-    
-        Returns True only if: intersection_area(A,B) > min_ratio * area(B)
-        """
-    
-        Ax1, Ay1, Ax2, Ay2 = A
-        Bx1, By1, Bx2, By2 = B
-    
-        # Check validity of boxes
-        if Ax2 <= Ax1 or Ay2 <= Ay1:
-            return False
-        if Bx2 <= Bx1 or By2 <= By1:
-            return False
-    
-        # Compute intersection coordinates
-        ix1 = max(Ax1, Bx1)
-        iy1 = max(Ay1, By1)
-        ix2 = min(Ax2, Bx2)
-        iy2 = min(Ay2, By2)
-    
-        # No intersection
-        if ix2 <= ix1 or iy2 <= iy1:
-            return False
-    
-        # Intersection area
-        inter_area = (ix2 - ix1) * (iy2 - iy1)
-    
-        # Area of annotation box B
-        B_area = (Bx2 - Bx1) * (By2 - By1)
-    
-        # Required: intersection > 10% of B
-        return inter_area > (min_ratio * B_area)
-
-
-
-    def is_zero_bbox(self, bbox):
-        x, y, w, h = bbox
-        return (w == 0) or (h == 0)
-
-
-    def crop_ann_to_roi(self, big_roi, small_box, f=0.65):
-        """
-        Crop annotation bbox so that it fits inside ROI.
-    
-        big_roi:  [x1, y1, x2, y2]
-        small_box: [x1, y1, x2, y2]
-    
-        Rules:
-        - Fully outside: return [0,0,0,0]
-        - Partially inside: clipped to ROI
-        - If clipped width < f * org width: [0,0,0,0]
-        
-        Returns a COCO-format bbox: [x, y, w, h]
-        """
-        bx1, by1, bx2, by2 = big_roi
-        sx1, sy1, sx2, sy2 = small_box
-        
-        org_sbox_area = (sx2 - sx1) * (sy2 - sy1)
-        # Clip annotation into ROI
-        cx1 = max(bx1, sx1)
-        cy1 = max(by1, sy1)
-        cx2 = min(bx2, sx2)
-        cy2 = min(by2, sy2)
-    
-        # Completely outside
-        if cx2 <= cx1 or cy2 <= cy1:
-            return [0, 0, 0, 0]
-    
-        # Width / height
-        cw = cx2 - cx1
-        ch = cy2 - cy1
-    
-        # If too small: discard annotation
-        if (cw * ch) < f * org_sbox_area:
-            return [0, 0, 0, 0]
-    
-        # Valid clipped bbox in COCO format
-        return [int(cx1), int(cy1), int(cw), int(ch)]
 
     # ----------------------------------------------------------------------
     # STATISTICS

@@ -9,13 +9,13 @@ import numpy as np
 import matplotlib
 matplotlib.use("Agg")   # non-GUI backend for servers
 import matplotlib.pyplot as plt
-from pycocotools.coco import COCO
+from pycocotools import mask as mask_utils
 from mmdet.apis import DetInferencer
 import yaml
 
 from configs.config import params
 from utils.roi_cropper import ROICropper
-
+from utils.annotations_vlaidation import extract_valid_category_ids, make_file_logger, preprocess_annotations, update_annotation_after_roi_crop
 
 # ------------------------------------------------------------
 # Utility to fetch model config
@@ -28,7 +28,14 @@ def get_model_config(model_key: str):
     cfg = params.model_zoo[model_key]
     return cfg["model_name"], cfg["checkpoint"]
 
-
+def ann_to_mask(seg, height, width):
+    if isinstance(seg, list):  # polygon
+        rles = mask_utils.frPyObjects(seg, height, width)
+        m = mask_utils.decode(rles)
+        return m.max(axis=2)
+    else:  # RLE dict
+        return mask_utils.decode(seg)
+    
 # ------------------------------------------------------------
 # Main
 # ------------------------------------------------------------
@@ -46,27 +53,66 @@ if __name__ == '__main__':
         print("Error: missing annotation or image folder.")
         sys.exit(1)
 
-    # Build annotation filename
-    suffix = "_fixed" if params.use_fixed_ann else ""
-    ann_path = os.path.join(ann_dir, f"annotations_{params.dataset}{suffix}.json")
+    # Ensure output root exists
+    os.makedirs(params.output_root, exist_ok=True)
+    # ============================================================
+    #                   ANN PREPROCESSING
+    # ============================================================
+   
+    pre_ann_path = os.path.join(ann_dir, f"annotations_{params.dataset}.json")
 
-    if not os.path.exists(ann_path):
-        print("Error: annotation file not found:", ann_path)
-        sys.exit(1)
+    with open(pre_ann_path, "r") as f:
+        coco = json.load(f)
 
     print(f"\nDataset: {params.dataset}")
-    print(f"Input annotation file: {ann_path}\n")
+    print(f"Input annotation file: {pre_ann_path}\n")
+    
+    valid_ids = extract_valid_category_ids(coco)
+    logger = make_file_logger(f"../logs/preprocess_annotations_{params.dataset}.log")
+
+    cleaned_anns, stats = preprocess_annotations(coco, valid_ids, logger=logger)
+
+    # Build new COCO file
+    preprocess_coco = {
+        "licenses": coco["licenses"],
+        "info": coco["info"],
+        "images": coco["images"],
+        "annotations": cleaned_anns,
+        "categories": coco["categories"],
+    }
+    out_pre_ann_filename = f"annotations_{params.dataset}_preprocess.json"
+    out_pre_ann_fullpath = os.path.join(ann_dir, out_pre_ann_filename)
+
+    with open(out_pre_ann_fullpath, "w") as f:
+        json.dump(preprocess_coco, f, indent=2)
+
+    print(f"Saved updated COCO annotations to {out_pre_ann_fullpath}")
+
+    print("\nSUMMARY STATS:")
+    for k, v in stats.items():
+        print(f"{k:30s}: {v}")
 
     # ============================================================
-    #                    LOAD DATASET + JSON
+    #                   ROI Extraction
     # ============================================================
-    coco = COCO(ann_path)
+    postprocess_coco = preprocess_coco.copy()
+    # New containers for postprocessed annotations and images
+    post_images = []
+    post_annotations = []
 
-    with open(ann_path, "r") as f:
-        coco_json = json.load(f)
+    # Build fast index mappings for lookups
+    image_dict = {img["id"]: img for img in postprocess_coco["images"]}
+    ann_list = postprocess_coco["annotations"]
+    cat_id_to_name = {c["id"]: c["name"] for c in postprocess_coco["categories"]}
 
-    # Map image_id to image dict (for updating entries)
-    image_dict = {img["id"]: img for img in coco_json["images"]}
+    # Choose subset of image IDs
+    img_ids = [img["id"] for img in postprocess_coco["images"]]
+    subset_ids = (
+        random.sample(img_ids, params.num_images)
+        if params.num_images > 0
+        else img_ids
+    )
+    print(f"Selected images: {'all' if params.num_images == 0 else len(subset_ids)}")
 
     # ============================================================
     #                    LOAD MODEL + CROP LOGIC
@@ -78,20 +124,7 @@ if __name__ == '__main__':
     class_names = inferencer.model.dataset_meta["classes"]
     cropper = ROICropper(class_names)
 
-    # Choose subset of image IDs
-    img_ids = coco.getImgIds()
-    subset_ids = (
-        random.sample(img_ids, params.num_images)
-        if params.num_images > 0
-        else img_ids
-    )
-
-    print(f"Selected images: {'all' if params.num_images == 0 else len(subset_ids)}")
-
     times = []
-
-    # Ensure output root exists
-    os.makedirs(params.output_root, exist_ok=True)
 
     # ============================================================
     #                        MAIN LOOP
@@ -99,7 +132,7 @@ if __name__ == '__main__':
     for img_id in subset_ids:
 
         # ------------------ Load image --------------------------
-        img_info = coco.loadImgs(img_id)[0]
+        img_info = image_dict[img_id]
         img_path = os.path.join(img_dir, img_info["file_name"])
 
         image = cv2.cvtColor(cv2.imread(img_path), cv2.COLOR_BGR2RGB)
@@ -114,7 +147,7 @@ if __name__ == '__main__':
         os.makedirs(out_dir, exist_ok=True)
 
         # ------------------ Load anns -----------------------------
-        anns = coco.loadAnns(coco.getAnnIds(imgIds=img_id))
+        anns = [ann for ann in ann_list if ann["image_id"] == img_id]
 
         # Optional debug mask visualization
         if params.save_debug_vis:
@@ -125,7 +158,7 @@ if __name__ == '__main__':
 
                 # blend segmentation mask
                 if ann.get("segmentation"):
-                    mask = coco.annToMask(ann)
+                    mask = ann_to_mask(ann["segmentation"], img_h, img_w)
                     vis_img[mask == 1] = (
                         vis_img[mask == 1] * 0.5 + np.array(color) * 0.5
                     )
@@ -133,7 +166,8 @@ if __name__ == '__main__':
                 # draw bbox
                 x, y, w, h = ann["bbox"]
                 cv2.rectangle(vis_img, (int(x), int(y)), (int(x + w), int(y + h)), color, 2)
-                cat_name = coco.loadCats(ann["category_id"])[0]["name"]
+                # class name
+                cat_name = cat_id_to_name[ann["category_id"]]
                 cv2.putText(
                     vis_img,
                     cat_name,
@@ -175,7 +209,6 @@ if __name__ == '__main__':
         #                   ROI EXTRACTION + UPDATE JSON
         # ============================================================
         roi_info = cropper.extract_roi(
-            ann["bbox"],
             bboxes,
             scores,
             labels,
@@ -193,30 +226,54 @@ if __name__ == '__main__':
         # convert ROI to COCO [x,y,w,h]
         x1, y1, x2, y2 = map(int, roi)
         roi_coco = [x1, y1, x2 - x1, y2 - y1]
-
+        
+        # Save updated image entry
         img_entry = image_dict[img_id]
         img_entry["roi_bbox"] = roi_coco
-        img_entry["roi_class_id"] = cls_id
-        img_entry["roi_class_name"] = cls_name
-        img_entry["roi_score"] = score
+        post_images.append(img_entry)
+
+        
+        for ann in anns:
+            # new_ann = ann.copy()
+            # # Update bbox
+            # new_ann["bbox"] =
+            # if new_ann["bbox"] is None:
+            #     continue
+            # # Crop segmentation mask
+            # new_ann["segmentation"] = 
+            # # Update area
+            # new_ann["area"] =
+            # post_annotations.append(new_ann)
+            ok = update_annotation_after_roi_crop(
+                    ann,
+                    roi,
+                    img_h,
+                    img_w
+                )
+            if ok:
+                post_annotations.append(ann)
 
         # save cropped ROI image
-        roi_img = image[y1:y2, x1:x2]
         if params.save_debug_vis:
+            roi_img = image[y1:y2, x1:x2]
             plt.imsave(os.path.join(out_dir, f"cropped_roi_{params.model_key}.jpg"), roi_img)
 
+    # Update postprocess_coco
+    postprocess_coco["annotations"] = post_annotations
+    postprocess_coco["images"] = post_images
+
+    
     # ============================================================
     #                SAVE UPDATED JSON WITH ROI
     # ============================================================
-    out_json_path = os.path.join(
-        ann_dir, f"annotations_{ params.dataset}{suffix}_with_roi.json"
-    )
+    out_post_ann_filename = f"annotations_{params.dataset}_postprocess.json"
+    out_post_ann_fullpath = os.path.join(ann_dir, out_post_ann_filename)
 
-    with open(out_json_path, "w") as f:
-        json.dump(coco_json, f, indent=2)
+    with open(out_post_ann_fullpath, "w") as f:
+        json.dump(postprocess_coco, f, indent=2)
 
     print("\nSaved updated COCO annotations with ROI to")
-    print(out_json_path)
+    print(out_post_ann_fullpath)
 
     # ============================================================
     #                    SHOW ROI CROP STATS

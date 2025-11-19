@@ -361,8 +361,7 @@ def ann_to_mask(ann, height, width):
         return mask.max(axis=2)
     else:  # already RLE
         return mask_utils.decode(seg)
-
-
+   
 def mask_to_segmentation(mask):
     rle = mask_utils.encode(np.asfortranarray(mask.astype(np.uint8)))
     rle["counts"] = rle["counts"].decode("utf-8")

@@ -9,32 +9,14 @@ import numpy as np
 import matplotlib
 matplotlib.use("Agg")   # non-GUI backend for servers
 import matplotlib.pyplot as plt
-from pycocotools import mask as mask_utils
 from mmdet.apis import DetInferencer
 import yaml
 from configs.config import params
 from utils.roi_cropper import ROICropper
-from utils.annotations_vlaidation import extract_valid_category_ids, make_file_logger, preprocess_annotations, update_annotation_after_roi_crop
-
-# ------------------------------------------------------------
-# Utility to fetch model config
-# ------------------------------------------------------------
-def get_model_config(model_key: str):
-    if model_key not in params.model_key:
-        raise ValueError(
-            f"Unknown model '{model_key}'. Available: {list(params.model_zoo.keys())}"
-        )
-    cfg = params.model_zoo[model_key]
-    return cfg["model_name"], cfg["checkpoint"]
-
-def ann_to_mask(seg, height, width):
-    if isinstance(seg, list):  # polygon
-        rles = mask_utils.frPyObjects(seg, height, width)
-        m = mask_utils.decode(rles)
-        return m.max(axis=2)
-    else:  # RLE dict
-        return mask_utils.decode(seg)
-    
+from utils.annotations_vlaidation import (ann_to_mask, extract_valid_category_ids, make_file_logger, 
+                                          preprocess_annotations, update_annotation_after_roi_crop)
+from utils.general_utils import get_model_config
+   
 # ------------------------------------------------------------
 # Main
 # ------------------------------------------------------------
@@ -116,7 +98,7 @@ if __name__ == '__main__':
     # ============================================================
     #                    LOAD MODEL + CROP LOGIC
     # ============================================================
-    model_name, checkpoint = get_model_config(params.model_key)
+    model_name, checkpoint = get_model_config(params.model_key, params.model_zoo)
     print(f"Using model: {params.model_key}")
 
     inferencer = DetInferencer(model_name, checkpoint)
@@ -157,7 +139,7 @@ if __name__ == '__main__':
 
                 # blend segmentation mask
                 if ann.get("segmentation"):
-                    mask = ann_to_mask(ann["segmentation"], img_h, img_w)
+                    mask = ann_to_mask(ann, img_h, img_w)
                     vis_img[mask == 1] = (
                         vis_img[mask == 1] * 0.5 + np.array(color) * 0.5
                     )

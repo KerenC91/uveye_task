@@ -5,12 +5,11 @@ class Params:
 
 
 params = Params(
-
     # ------------------------------------------------------------
     # Dataset settings
     # ------------------------------------------------------------
-    data_dir="mmdetection/data/Dataset",
-    dataset="val",                 # options: "train", "val", "test"
+    data_dir="../data/Dataset",
+    dataset="test",                 # options: "train", "val", "test"
     use_fixed_ann=True,            # load annotations_*_fixed.json if True
     num_images=0,                  # 0: process all images
 
@@ -46,25 +45,25 @@ params = Params(
         "yolo_s": {
             "model_name": "yolox_s_8x8_300e_coco",
             "checkpoint": (
-                "mmdetection/checkpoints/yolox_s_8x8_300e_coco_20211121_095711-4592a793.pth"
+                "../checkpoints/yolox_s_8x8_300e_coco_20211121_095711-4592a793.pth"
             ),
         },
         "yolo_x": {
             "model_name": "yolox_x_8x8_300e_coco",
             "checkpoint": (
-                "mmdetection/checkpoints/yolox_x_8x8_300e_coco_20211126_140254-1ef88d67.pth"
+                "../checkpoints/yolox_x_8x8_300e_coco_20211126_140254-1ef88d67.pth"
             ),
         },
         "rtmdet_tiny": {
             "model_name": "rtmdet_tiny_8xb32-300e_coco",
             "checkpoint": (
-                "mmdetection/checkpoints/rtmdet_tiny_8xb32-300e_coco_20220902_112414-78e30dcc.pth"
+                "../checkpoints/rtmdet_tiny_8xb32-300e_coco_20220902_112414-78e30dcc.pth"
             ),
         },
         "rtmdet_x": {
             "model_name": "rtmdet_x_8xb32-300e_coco",
             "checkpoint": (
-                "mmdetection/checkpoints/rtmdet_x_8xb32-300e_coco_20220715_230555-cc79b9ae.pth"
+                "../checkpoints/rtmdet_x_8xb32-300e_coco_20220715_230555-cc79b9ae.pth"
             ),
         },
         # Add more models here if needed...

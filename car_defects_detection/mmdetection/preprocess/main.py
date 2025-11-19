@@ -12,7 +12,6 @@ import matplotlib.pyplot as plt
 from pycocotools import mask as mask_utils
 from mmdet.apis import DetInferencer
 import yaml
-
 from configs.config import params
 from utils.roi_cropper import ROICropper
 from utils.annotations_vlaidation import extract_valid_category_ids, make_file_logger, preprocess_annotations, update_annotation_after_roi_crop
@@ -279,7 +278,8 @@ if __name__ == '__main__':
     #                    SHOW ROI CROP STATS
     # ============================================================
     stats = cropper.get_statistics()
-    cropper.show_hist(os.path.join(params.output_root, f"hist_th_{params.score_threshold}_{params.model_key}.jpg"))
+    cropper.show_hist(os.path.join(params.output_root, f"hist_th_{params.score_threshold}_{params.model_key}.jpg"),
+                      params.save_debug_vis)
 
     print(f"\nSUMMARY STATS  (model={params.model_key}, th={params.score_threshold}):")
     for k, v in stats.items():

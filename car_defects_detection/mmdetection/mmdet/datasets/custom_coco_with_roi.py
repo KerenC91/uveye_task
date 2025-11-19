@@ -13,6 +13,18 @@ from mmdet.registry import DATASETS
 
 @DATASETS.register_module()
 class CocoDatasetWithROI(CocoDataset):
+
+    METAINFO = {
+    'classes': ('dent', 'scratch', 'crack', 'glass shatter', 'lamp broken', 'tire flat', ),
+    'palette': [
+            (255, 105, 180),   # pink       
+            (135, 206, 250),   # light blue 
+            (0, 255, 0),       # green       
+            (160, 32, 240),    # purple      
+            (255, 255, 0),     # yellow      
+            (255, 0, 0),       # red       
+        ]
+    }
         
     def parse_data_info(self, raw_data_info):
         data_info = super().parse_data_info(raw_data_info)

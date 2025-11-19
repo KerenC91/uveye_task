@@ -11,13 +11,18 @@ class CropToCarROI:
         roi = results.get('roi_bbox', None)
         # id = results.get('img_id', None)
         if roi is None:
-            # print("NO ROI NO ROI NO ROI NO ROI NO ROI NO ROI")
-            # print(results)
+            print("NO ROI NO ROI NO ROI NO ROI NO ROI NO ROI")
+            print(id)
+            print("ROI:", roi)
+            print("GT bboxes:", results.get("gt_bboxes", None))
+            print("Image shape before crop:", results['img'].shape)
             return results  # no ROI for this image
-        # else:
-        #     print("YES ROI YES ROI YES ROI YES ROI YES ROI YES ROI")
-        #     print(id)
-        #     print(roi)
+        else:
+            print("YES ROI YES ROI YES ROI YES ROI YES ROI YES ROI")
+            print(id)
+            print("ROI:", roi)
+            print("GT bboxes:", results.get("gt_bboxes", None))
+            print("Image shape before crop:", results['img'].shape)
 
         # COCO format: x, y, width, height
         x1, y1, w, h = map(int, roi)

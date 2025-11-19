@@ -4,9 +4,9 @@ _base_ = './rtmdet_s_8xb32-300e_coco.py'
 data_root = root + '/data/Dataset'
 
 train_batch_size_per_gpu = 4
-train_num_workers = 0#2
+train_num_workers = 2#0
 
-max_epochs = 1#20
+max_epochs = 20#20
 stage2_num_epochs = 1
 base_lr = 0.00008
 dataset_type = 'CocoDatasetWithROI'
@@ -60,7 +60,7 @@ val_evaluator = dict(ann_file=data_root + '/annotations/annotations_val_postproc
 
 test_evaluator = dict(ann_file=data_root + '/annotations/annotations_test_postprocess.json', metric=['bbox'],)
 
-#checkpoint = 'https://download.openmmlab.com/mmdetection/v3.0/rtmdet/cspnext_rsb_pretrain/cspnext-tiny_imagenet_600e.pth'  # noqa
+checkpoint = 'https://download.openmmlab.com/mmdetection/v3.0/rtmdet/cspnext_rsb_pretrain/cspnext-tiny_imagenet_600e.pth'  # noqa
 
 # load COCO pre-trained weight
 load_from = root + '/checkpoints/rtmdet_tiny_8xb32-300e_coco_20220902_112414-78e30dcc.pth'
@@ -71,7 +71,7 @@ model = dict(
         deepen_factor=0.167,
         widen_factor=0.375,
         init_cfg=dict(
-            type='Pretrained', prefix='backbone.', checkpoint=load_from)),
+            type='Pretrained', prefix='backbone.', checkpoint=checkpoint)),
     neck=dict(in_channels=[96, 192, 384], out_channels=96, num_csp_blocks=1),
     bbox_head=dict(in_channels=96, feat_channels=96, exp_on_reg=False, num_classes=n_classes))
 
@@ -96,7 +96,7 @@ param_scheduler = [
 
 train_pipeline = [
     dict(type='LoadImageFromFile', backend_args={{_base_.backend_args}}),
-    dict(type='LoadAnnotations', with_bbox=True, with_mask=False, poly2mask=False),
+    dict(type='LoadAnnotations', with_bbox=True, with_mask=True, poly2mask=True),
     dict(type='CropToCarROI'),
 
     dict(

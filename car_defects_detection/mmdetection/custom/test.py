@@ -101,8 +101,9 @@ def main(args):
             print(f"Warning: failed to load {img_path}")
             continue
 
-        out_dir = os.path.join(args.output_folder, str(img_id))
-        os.makedirs(out_dir, exist_ok=True)
+        if args.save_debug_vis:
+            out_dir = os.path.join(args.output_folder, str(img_id))
+            os.makedirs(out_dir, exist_ok=True)
 
         anns = coco.loadAnns(coco.getAnnIds(imgIds=img_id))
 

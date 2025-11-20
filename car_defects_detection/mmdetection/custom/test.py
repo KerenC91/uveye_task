@@ -7,9 +7,9 @@ import numpy as np
 from pycocotools.coco import COCO
 from pycocotools.cocoeval import COCOeval
 from configs.config import test_params
-from utils.data_utils import select_image_ids, load_model, load_image_rgb
+from utils.data_utils import load_model, load_image_rgb
 import argparse
-
+import random
 
 def draw_ground_truth(image, anns, coco):
     """Draw segmentation masks + bboxes for GT."""
@@ -79,7 +79,11 @@ def main(args):
 
     # ------------------------ Choose subset ---------------------
     img_ids = coco.getImgIds()
-    subset_ids = select_image_ids(img_ids, test_params.num_images)
+    subset_ids = (
+        random.sample(img_ids, test_params.num_images)
+        if test_params.num_images > 0
+        else img_ids
+    )
     print(f"Selected images: {'all' if test_params.num_images == 0 else len(subset_ids)}")
 
     times = []

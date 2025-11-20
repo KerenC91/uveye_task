@@ -73,13 +73,13 @@ test_params = Params(
         "rtmdet_tiny": {
             "model_name": "../configs/rtmdet/rtmdet_tiny_8xb32-300e_car_defects.py",
             "checkpoint": (
-                "../work_dirs/rtmdet_tiny_8xb32-300e_car_defects/best_coco_bbox_mAP_epoch_17.pth"
+                "../checkpoints/rtmdet_tiny_8xb32-300e_car_defects/best_coco_bbox_mAP_epoch_17.pth"
             ),
         },
         "mask_rcnn_r50": {
             "model_name": "../configs/mask_rcnn/mask-rcnn_r50_fpn_1x_car_defects.py",
             "checkpoint": (
-                "../work_dirs/mask-rcnn_r50_fpn_1x_car_defects/best_coco_bbox_mAP_epoch_16.pth"
+                "../checkpoints/mask_rcnn_r50_fpn_1x_coco_mAP_best_epoch_16.pth"
             ),
         },
     },

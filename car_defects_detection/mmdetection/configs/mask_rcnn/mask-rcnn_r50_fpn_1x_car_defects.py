@@ -8,7 +8,7 @@ root = '/scratch/home/kerencohen2/uveye_task/car_defects_detection/mmdetection'
 data_root = root + '/data/Dataset'
 
 train_batch_size_per_gpu = 2
-train_num_workers = 0#2
+train_num_workers = 2#2
 
 max_epochs = 20#20
 stage2_num_epochs = 1
@@ -57,7 +57,7 @@ test_pipeline = [
 train_dataloader = dict(
     batch_size=train_batch_size_per_gpu,
     num_workers=train_num_workers,
-    persistent_workers = False,
+    persistent_workers = True,
     sampler=dict(type='DefaultSampler',shuffle=True),
     batch_sampler=dict(type='AspectRatioBatchSampler'),
     dataset=dict(
@@ -73,7 +73,7 @@ train_dataloader = dict(
 val_dataloader = dict(
 	batch_size=1,
 	num_workers=train_num_workers,
-	persistent_workers = False,
+	persistent_workers = True,
 	sampler=dict(type='DefaultSampler',shuffle=False),
 	dataset=dict(
 		type=dataset_type,
@@ -88,7 +88,7 @@ val_dataloader = dict(
 test_dataloader = dict(
 	batch_size=1,
 	num_workers=train_num_workers,
-	persistent_workers = False,
+	persistent_workers = True,
 	sampler=dict(type='DefaultSampler',shuffle=False),
 	dataset=dict(
 	type=dataset_type,
@@ -103,7 +103,7 @@ test_dataloader = dict(
 val_evaluator = dict(ann_file=data_root + '/annotations/annotations_val_postprocessroi.json', metric=['bbox', 'segm'], format_only=False, backend_args=backend_args)
 
 test_evaluator = dict(ann_file=data_root + '/annotations/annotations_test_postprocessroi.json', metric=['bbox', 'segm'], format_only=True, 
-		outfile_prefix='./work_dirs/car_defects_detection/test', backend_args=backend_args)
+		outfile_prefix=root +'/work_dirs/mask-rcnn_r50_fpn_1x_car_defects/test', backend_args=backend_args)
 #####
 
 

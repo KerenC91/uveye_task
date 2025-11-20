@@ -1,261 +1,186 @@
 import numpy as np
 from collections import defaultdict
+import matplotlib
+matplotlib.use("Agg")
+
 import matplotlib.pyplot as plt
 from configs.config import params
 
 
 class ROICropper:
-    """
-    Car ROI extractor that:
-      - filters detections by class
-      - filters by score threshold
-      - selects the largest-area box
-      - clips bbox to image bounds
-      - validates ROI size and area ratio
-      - records statistics
-    """
+    """ROI selector that filters detections, validates boxes, and tracks statistics."""
 
     def __init__(self, class_names=None):
+        """Initialize stats containers and class mappings."""
         self.class_names = class_names
 
-        # Global statistics
-        self.class_counter = defaultdict(int)
-        self.class_scores_sum = defaultdict(float)
+        self.stats = {
+            "full_area":          {"count": 0, "ids": []},
+            "low_score":          {"count": 0, "ids": []},
+            "area_ratio":         {"count": 0, "ids": []},
+            "zero_size":          {"count": 0, "ids": []},
+            "out_of_bounds":      {"count": 0, "ids": []},
+            "unallowed_classes":  {"count": 0, "ids": []},
+            "accepted":           {"count": 0, "ids": []},
+        }
+
+        self.class_stats = {
+            "counts": defaultdict(int),
+            "sum_scores": defaultdict(float),
+            "ids": defaultdict(list),
+        }
+        
         self.global_scores = []
 
-        # Tracking various rejection cases
-        self.full_area_counter = 0
-        self.rejected_low_score = 0
-        self.rejected_area_ratio = 0
-        self.rejected_zero_size = 0
-        self.accepted_counter = 0
-        self.rejected_out_of_boundaries_counter = 0
-        self.rejected_unallowed_classes_counter = 0
+        self.score_buckets = {
+            "0_1": [], "1_2": [], "2_3": [], "3_4": [], "4_5": []
+        }
 
-        # Image ID tracking
-        self.full_area_ids = []
-        self.rejected_low_score_ids = []
-        self.rejected_area_ratio_ids = []
-        self.rejected_zero_size_ids = []
-        self.rejected_out_of_boundaries_ids = []
-        self.accepted_ids = []
-        self.rejected_unallowed_classes_ids = []
-        self.class_ids = defaultdict(list)
-        
-        # Score buckets: store (img_id, score)
-        self.score_bucket_0_1   = []   # score < 0.1
-        self.score_bucket_1_2   = []   # 0.1 ≤ score < 0.2
-        self.score_bucket_2_3   = []   # 0.2 ≤ score < 0.3
-        self.score_bucket_3_4   = []   # 0.3 ≤ score < 0.4
-        self.score_bucket_4_5   = []   # 0.4 ≤ score < 0.5
+    # ------------------------------------------------------------ #
+    # Helpers
+    # ------------------------------------------------------------ #
+    def _reject(self, key, img_id, w, h, mode, score=0.0):
+        """Record a rejection event and return fallback ROI."""
+        self.stats[key]["count"] += 1
+        self.stats[key]["ids"].append(img_id)
+        if mode == "discard":
+            return None
+        return [0, 0, w, h], None, None, score
 
+    def _allowed_vehicle_indices(self, labels):
+        """Return indices of vehicle-class detections."""
+        return [i for i, lbl in enumerate(labels) if lbl in params.vehicle_classes]
 
-    def _update_score_buckets(self, img_id, score):
-        """Store image ID and score according to predefined buckets."""
-        if score < 0.1:
-            self.score_bucket_0_1.append((img_id, score))
-        elif score < 0.2:
-            self.score_bucket_1_2.append((img_id, score))
-        elif score < 0.3:
-            self.score_bucket_2_3.append((img_id, score))
-        elif score < 0.4:
-            self.score_bucket_3_4.append((img_id, score))
-        elif score < 0.5:
-            self.score_bucket_4_5.append((img_id, score))
-        # scores ≥ 0.5 are handled normally by your threshold logic
+    def _forbidden_trigger(self, labels, scores):
+        """Check if any forbidden class exceeds the rejection threshold."""
+        bad = [i for i, lbl in enumerate(labels) if lbl in params.invalid_classes]
+        if not bad:
+            return False
+        return np.any(scores[bad] >= params.bad_threshold)
 
-    # ----------------------------------------------------------------------
-    # MAIN ROI EXTRACTION
-    # ----------------------------------------------------------------------
-    def extract_roi(
-        self,
-        bboxes, scores, labels,
-        img_w, img_h, img_id,
-        mode="training"
-    ):
-        """
-        bboxes: Nx4 array float [x1, y1, x2, y2]
-        scores: N
-        labels: N
-        mode: training/inference
-        """
+    def _clip_boxes(self, b, w, h):
+        """Clip bounding boxes to image boundaries."""
+        b[:, 0] = np.clip(b[:, 0], 0, w - 1)
+        b[:, 2] = np.clip(b[:, 2], 0, w - 1)
+        b[:, 1] = np.clip(b[:, 1], 0, h - 1)
+        b[:, 3] = np.clip(b[:, 3], 0, h - 1)
+        return b
 
-        # -----------------------------------------------------
-        # 1. No predictions at all
-        # -----------------------------------------------------
-        if bboxes is None or len(bboxes) == 0:
-            self.full_area_counter += 1
-            self.full_area_ids.append(img_id)
-            return None if mode == "training" else ([0, 0, img_w, img_h], None, None, 0.0)
-
-        # -----------------------------------------------------
-        # Inspect unallowed classes
-        # -----------------------------------------------------
-        bad_idx = [i for i, lbl in enumerate(labels) if lbl in params.invalid_classes]
-        
-        if len(bad_idx) >= 0:
-            bad_scores = scores[bad_idx]
-            
-            bad_mask = bad_scores >= params.bad_threshold 
-            
-            if np.any(bad_mask):      
-                self.rejected_unallowed_classes_counter += 1
-                self.rejected_unallowed_classes_ids.append(img_id)
-                return None if mode == 'training' else (
-                    [0,0,img_w,img_h], None, None, 0.0)
-                
-        # -----------------------------------------------------
-        # 2. Filter by allowed vehicle classes
-        # -----------------------------------------------------
-        idx = [i for i, lbl in enumerate(labels) if lbl in params.vehicle_classes]
-
-        if len(idx) == 0:
-            self.full_area_counter += 1
-            self.full_area_ids.append(img_id)
-            return None if mode == "training" else ([0, 0, img_w, img_h], None, None, 0.0)
-
-        bboxes = bboxes[idx]
-        scores = scores[idx]
-        labels = labels[idx]
-
-        # -----------------------------------------------------
-        # 3. Score threshold
-        # -----------------------------------------------------
-        mask = scores >= params.score_threshold
-        if not np.any(mask):
-            self.rejected_low_score += 1
-            self.rejected_low_score_ids.append(img_id)
-            return None if mode == "training" else ([0, 0, img_w, img_h], None, None, 0.0)
-
-        b = bboxes[mask].copy()
-        sc = scores[mask]
-        lb = labels[mask]
-
-        # -----------------------------------------------------
-        # 4. Compute areas after clipping
-        # -----------------------------------------------------
-        # clip: valid pixel coords = [0 .. w-1] / [0 .. h-1]
-        b[:, 0] = np.clip(b[:, 0], 0, img_w - 1)   # x1
-        b[:, 2] = np.clip(b[:, 2], 0, img_w - 1)   # x2
-        b[:, 1] = np.clip(b[:, 1], 0, img_h - 1)   # y1
-        b[:, 3] = np.clip(b[:, 3], 0, img_h - 1)   # y2
-
+    def _choose_best(self, b, scores, w, h):
+        """Pick the highest-ranked ROI by size–score combination."""
         areas = (b[:, 2] - b[:, 0]) * (b[:, 3] - b[:, 1])
-        image_area = img_w * img_h
-        
-        normalized_areas = areas / image_area
-        
-        rank_score = np.sqrt(normalized_areas) * sc
-        idx_sorted = np.argsort(-rank_score)    # desc
+        norm = areas / (w * h)
+        rank = np.sqrt(norm) * scores
+        idx = np.argmax(rank)
+        return idx, norm[idx], scores[idx]
 
-        largest_idx = idx_sorted[0]
-        # largest_score = float(rank_score[largest_idx])
+    def _clip_xyxy(self, x1, y1, x2, y2, w, h):
+        """Clamp integer box coordinates inside the image."""
+        return (
+            max(0, min(x1, w - 1)),
+            max(0, min(y1, h - 1)),
+            max(0, min(x2, w - 1)),
+            max(0, min(y2, h - 1)),
+        )
 
-        # -----------------------------------------------------
-        # 5. Extract the largest ROI
-        # -----------------------------------------------------
-        x1, y1, x2, y2 = [int(v) for v in b[largest_idx]]
+    def _update_bucket(self, img_id, score):
+        """Place a score into its corresponding bucket."""
+        if score < 0.1: self.score_buckets["0_1"].append((img_id, score))
+        elif score < 0.2: self.score_buckets["1_2"].append((img_id, score))
+        elif score < 0.3: self.score_buckets["2_3"].append((img_id, score))
+        elif score < 0.4: self.score_buckets["3_4"].append((img_id, score))
+        elif score < 0.5: self.score_buckets["4_5"].append((img_id, score))
 
-		# Clip x1,y1 to valid pixel indices (0 .. w-1 / 0 .. h-1)
-        x1 = max(0, min(int(x1), img_w - 1))
-        y1 = max(0, min(int(y1), img_h - 1))
-        x2 = max(0, min(int(x2), img_w - 1))
-        y2 = max(0, min(int(y2), img_h - 1))
 
-        cls = int(lb[largest_idx])
-        score = float(sc[largest_idx])
-        class_name = self.class_names[cls] if self.class_names else None
-        
-        # Ensure non-zero ROI
+
+    # ------------------------------------------------------------ #
+    # Main
+    # ------------------------------------------------------------ #
+    def extract_roi(self, bboxes, scores, labels, img_w, img_h, img_id, mode="discard"):
+        """Extract car ROI for an image and update statistics."""
+        if bboxes is None or len(bboxes) == 0:
+            return self._reject("full_area", img_id, img_w, img_h, mode)
+
+        if self._forbidden_trigger(labels, scores):
+            return self._reject("unallowed_classes", img_id, img_w, img_h, mode)
+
+        idx = self._allowed_vehicle_indices(labels)
+        if not idx:
+            return self._reject("full_area", img_id, img_w, img_h, mode)
+
+        b = bboxes[idx]
+        sc = scores[idx]
+        lb = labels[idx]
+
+        mask = sc >= params.score_threshold
+        if not np.any(mask):
+            return self._reject("low_score", img_id, img_w, img_h, mode)
+
+        b = b[mask].copy()
+        sc = sc[mask]
+        lb = lb[mask]
+
+        b = self._clip_boxes(b, img_w, img_h)
+        best_idx, area_ratio, best_score = self._choose_best(b, sc, img_w, img_h)
+
+        x1, y1, x2, y2 = [int(v) for v in b[best_idx]]
+        x1, y1, x2, y2 = self._clip_xyxy(x1, y1, x2, y2, img_w, img_h)
+
         if x2 <= x1 or y2 <= y1:
-            self.rejected_zero_size += 1
-            self.rejected_zero_size_ids.append(img_id)
-            return None if mode == "training" else ([0, 0, img_w, img_h], None, None, score)
-            
-        # -----------------------------------------------------
-        # 6. Validate area ratio (min/max allowed)
-        # -----------------------------------------------------
-        area_ratio = normalized_areas[largest_idx]
+            return self._reject("zero_size", img_id, img_w, img_h, mode, best_score)
 
         if not (params.min_area_ratio <= area_ratio <= params.max_area_ratio):
-            self.rejected_area_ratio += 1
-            self.rejected_area_ratio_ids.append(img_id)
-            return None if mode == "training" else ([0, 0, img_w, img_h], None, None, score)
+            return self._reject("area_ratio", img_id, img_w, img_h, mode, best_score)
 
-        # -----------------------------------------------------
-        # 7. Accept ROI
-        # -----------------------------------------------------
+        cls = int(lb[best_idx])
+        cname = self.class_names[cls] if self.class_names else None
         roi = [x1, y1, x2, y2]
 
-        self.class_counter[class_name] += 1
-        self.class_scores_sum[class_name] += score
-        self.global_scores.append(score)
-        self.accepted_counter += 1
-        self.accepted_ids.append(img_id)
-        self.class_ids[class_name].append(img_id)
+        self.stats["accepted"]["count"] += 1
+        self.stats["accepted"]["ids"].append(img_id)
 
-        # bucket by score
-        self._update_score_buckets(img_id, score)
-        
-        return roi, cls, class_name, score
+        self.class_stats["counts"][cname] += 1
+        self.class_stats["sum_scores"][cname] += best_score
+        self.class_stats["ids"][cname].append(img_id)
 
-    # ----------------------------------------------------------------------
-    # STATISTICS
-    # ----------------------------------------------------------------------
+        self.global_scores.append(best_score)
+        self._update_bucket(img_id, best_score)
+
+        return roi, cls, cname, best_score
+
+    # ------------------------------------------------------------ #
+    # Stats
+    # ------------------------------------------------------------ #
     def get_statistics(self):
-        per_class_stats = {}
-
-        for cname in self.class_counter:
-            count = self.class_counter[cname]
-            avg_score = self.class_scores_sum[cname] / count
-            per_class_stats[cname] = {
-                "count": count,
-                "avg_accuracy": avg_score,
+        """Return accumulated statistics in a structured dict."""
+        class_out = {
+            cname: {
+                "count": self.class_stats["counts"][cname],
+                "avg_accuracy": (
+                    self.class_stats["sum_scores"][cname] / self.class_stats["counts"][cname]
+                ) if self.class_stats["counts"][cname] else 0.0
             }
+            for cname in self.class_stats["counts"]
+        }
 
         global_avg = float(np.mean(self.global_scores)) if self.global_scores else 0.0
         global_min = float(np.min(self.global_scores)) if self.global_scores else 0.0
 
         return {
-            "per_class": per_class_stats,
+            "stats": self.stats,
+            "class_stats": class_out,
+            "score_buckets": self.score_buckets,
             "global_avg_accuracy": global_avg,
             "global_min_accuracy": global_min,
-            "full_area_counter": self.full_area_counter,
-            "rejected_low_score": self.rejected_low_score,
-            "accepted_counter": self.accepted_counter,
-            "rejected_area_ratio": self.rejected_area_ratio,
-            "rejected_zero_size": self.rejected_zero_size,
-            "rejected_out_of_boundaries_counter": self.rejected_out_of_boundaries_counter,
-            "rejected_unallowed_classes_counter": self.rejected_unallowed_classes_counter,
-
-            "full_area_ids": self.full_area_ids,
-            "rejected_low_score_ids": self.rejected_low_score_ids,
-            "rejected_area_ratio_ids": self.rejected_area_ratio_ids,
-            "rejected_zero_size_ids": self.rejected_zero_size_ids,
-            "self.class_ids": self.class_ids,
-            "rejected_out_of_boundaries_ids": self.rejected_out_of_boundaries_ids,
-            "accepted_ids": self.accepted_ids,
-            "rejected_unallowed_classes_ids": self.rejected_unallowed_classes_ids,
-            
-            "score_bucket_0_1": self.score_bucket_0_1,
-            "score_bucket_1_2": self.score_bucket_1_2,
-            "score_bucket_2_3": self.score_bucket_2_3,
-            "score_bucket_3_4": self.score_bucket_3_4,
-            "score_bucket_4_5": self.score_bucket_4_5
         }
 
-
-    # ----------------------------------------------------------------------
-    # HISTOGRAM PLOT
-    # ----------------------------------------------------------------------
-    def show_hist(self, filename, savefig=False):
+    # ------------------------------------------------------------ #
+    # Plot
+    # ------------------------------------------------------------ #
+    def show_hist(self, filename):
+        """Save histogram of ROI acceptance scores."""
         plt.figure()
         plt.hist(self.global_scores, bins=20)
         plt.title("Score distribution")
-    
-        if savefig:
-            plt.savefig(filename)
-        else:
-            plt.show()
-    
+        plt.savefig(filename)
         plt.close()

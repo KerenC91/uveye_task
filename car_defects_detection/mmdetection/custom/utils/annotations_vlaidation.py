@@ -1,33 +1,6 @@
-import json
-import os
-from datetime import datetime
 from collections import defaultdict
-from pycocotools import mask as mask_utils
 import numpy as np
 
-
-# =====================================================================
-# Logging utilities
-# =====================================================================
-
-def make_file_logger(log_path):
-    """
-    Create a simple file logger(msg) that appends timestamped lines
-    to the given log file path.
-    """
-    os.makedirs(os.path.dirname(log_path), exist_ok=True)
-
-    def logger(msg):
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        with open(log_path, "a", encoding="utf-8") as f:
-            f.write(f"[{timestamp}] {msg}\n")
-
-    return logger
-
-
-# =====================================================================
-# Phase 1 — Geometry corrections (bbox + polygon)
-# =====================================================================
 
 def clip_box_to_image(box, W, H):
     """
@@ -73,9 +46,6 @@ def clip_polygon(poly, xend, yend, xstart=0, ystart=0):
         clipped.extend([x, y])
 
     return clipped if len(clipped) >= 6 else None
-# =====================================================================
-# Phase 2 — Category ID validation
-# =====================================================================
 
 def fix_category_id(cid, valid_ids, ann_id, stats, logger):
     """
@@ -94,11 +64,6 @@ def fix_category_id(cid, valid_ids, ann_id, stats, logger):
         return None
 
     return cid
-
-
-# =====================================================================
-# Phase 3 — Deduplication (NMS-style)
-# =====================================================================
 
 def box_iou(b1, b2):
     """
@@ -150,11 +115,6 @@ def deduplicate_annotations(anns, thresh=0.9):
 
     return keep
 
-
-# =====================================================================
-# Phase 4 — Annotation consistency checks
-# =====================================================================
-
 def annotation_is_consistent(ann, image_dict, stats, logger):
     """
     Validate minimal required fields & references.
@@ -187,11 +147,6 @@ def annotation_is_consistent(ann, image_dict, stats, logger):
 
     return True
 
-
-# =====================================================================
-# Phase 5 — Heuristic annotation fixes
-# =====================================================================
-
 def heuristic_fix_annotation(ann):
     """
     Add missing fields & normalize segmentation.
@@ -205,10 +160,9 @@ def heuristic_fix_annotation(ann):
     return ann
 
 
-# =====================================================================
-# Phase 7 — Main preprocessing pipeline
-# =====================================================================
-
+# ------------------------------------------------------------ #
+# Main
+# ------------------------------------------------------------ #
 def preprocess_annotations(coco, valid_ids, logger=print):
     """
     Full COCO preprocessing pipeline:
@@ -223,30 +177,27 @@ def preprocess_annotations(coco, valid_ids, logger=print):
     image_dict = {img["id"]: img for img in coco["images"]}
     cleaned = []
 
-    # --------------------------------------------------------------
-    # Main loop over annotations
-    # --------------------------------------------------------------
     for ann in coco["annotations"]:
         ann_id = ann.get("id")
 
-        # Phase 4: structural consistency
+        # structural consistency
         if not annotation_is_consistent(ann, image_dict, stats, logger):
             continue
 
         img = image_dict[ann["image_id"]]
         W, H = img["width"], img["height"]
 
-        # Phase 2: category validation
+        # category validation
         cid = fix_category_id(ann.get("category_id"), valid_ids, ann_id, stats, logger)
         if cid is None:
             continue
 
         ann["category_id"] = cid
 
-        # Phase 5: heuristic cleanup
+        # heuristic cleanup
         ann = heuristic_fix_annotation(ann)
 
-        # Phase 1: clip bbox
+        # clip bbox
         fixed_bbox = clip_box_to_image(ann["bbox"], W, H)
         if fixed_bbox is None:
             stats["invalid_bbox"] += 1
@@ -255,7 +206,7 @@ def preprocess_annotations(coco, valid_ids, logger=print):
 
         ann["bbox"] = fixed_bbox
 
-        # Fix segmentation polygons
+        # fix segmentation polygons
         new_segs = []
         for poly in ann.get("segmentation", []):
             clipped_poly = clip_polygon(poly, W - 1, H - 1)
@@ -272,65 +223,11 @@ def preprocess_annotations(coco, valid_ids, logger=print):
         cleaned.append(ann)
         stats["kept"] += 1
 
-    # --------------------------------------------------------------
-    # Phase 3: Deduplicate final annotations
-    # --------------------------------------------------------------
+    # deduplicate final annotations
     logger("Running deduplication...")
     cleaned = deduplicate_annotations(cleaned, thresh=0.9)
 
     stats["final_count"] = len(cleaned)
     return cleaned, dict(stats)
 
-# =====================================================================
-# Utility: extract valid category IDs
-# =====================================================================
 
-def extract_valid_category_ids(coco):
-    """
-    Retrieve all category_id values from COCO JSON.
-    """
-    if "categories" not in coco:
-        raise ValueError("COCO JSON missing 'categories' field.")
-
-    return sorted(cat["id"] for cat in coco["categories"])
-
-
-# =====================================================================
-# Standalone CLI usage
-# =====================================================================
-
-if __name__ == "__main__":
-
-    dataset = "val"
-    data_dir = "../data/Dataset"
-    ann_dir = os.path.join(data_dir, "annotations")
-    ann_file = f"annotations_{dataset}"
-    full_ann_path = os.path.join(ann_dir, f"{ann_file}.json")
-
-    with open(full_ann_path, "r") as f:
-        coco = json.load(f)
-
-    valid_ids = extract_valid_category_ids(coco)
-    logger = make_file_logger(f"../logs/preprocess_{ann_file}.log")
-
-    cleaned_anns, stats = preprocess_annotations(coco, valid_ids, logger=logger)
-
-    # Build new COCO file
-    fixed_coco = {
-        "licenses": coco["licenses"],
-        "info": coco["info"],
-        "images": coco["images"],
-        "annotations": cleaned_anns,
-        "categories": coco["categories"],
-    }
-
-    output_path = os.path.join(ann_dir, f"annotations_{dataset}_fixed.json")
-
-    with open(output_path, "w") as f:
-        json.dump(fixed_coco, f, indent=2)
-
-    print(f"Saved updated COCO annotations to {output_path}")
-
-    print("\nSUMMARY STATS:")
-    for k, v in stats.items():
-        print(f"{k:30s}: {v}")

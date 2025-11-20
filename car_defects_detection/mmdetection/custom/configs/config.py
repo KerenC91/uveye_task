@@ -8,13 +8,14 @@ params = Params(
     # ------------------------------------------------------------
     # Dataset settings
     # ------------------------------------------------------------
-    num_images=2,                  # 0: process all images
+    num_images=0,                  # 0: process all images
 
     # ------------------------------------------------------------
     # Model + inference settings
     # ------------------------------------------------------------
+    mode='discard',               # fordiscard - discard rejects, for keep - keep with original roi 
     score_threshold=0.2,           # detection confidence threshold
-    bad_threshold=0.5,              # for person class
+    bad_threshold=0.5,             # for person class
 
     # ------------------------------------------------------------
     # ROI validation settings

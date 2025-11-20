@@ -126,8 +126,7 @@ class CocoDataset(BaseDetDataset):
         data_info['seg_map_path'] = seg_map_path
         data_info['height'] = img_info['height']
         data_info['width'] = img_info['width']
-        # data_info['roi_bbox'] = img_info['roi_bbox']
-        
+
         if self.return_classes:
             data_info['text'] = self.metainfo['classes']
             data_info['caption_prompt'] = self.caption_prompt

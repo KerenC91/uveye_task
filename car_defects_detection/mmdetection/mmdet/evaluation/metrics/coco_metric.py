@@ -238,7 +238,6 @@ class CocoMetric(BaseMetric):
             for i, label in enumerate(labels):
                 data = dict()
                 data['image_id'] = image_id
-                # print(f'keren: image id: {image_id}')
                 data['bbox'] = self.xyxy2xywh(bboxes[i])
                 data['score'] = float(scores[i])
                 data['category_id'] = self.cat_ids[label]

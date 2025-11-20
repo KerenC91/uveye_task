@@ -8,7 +8,7 @@ root = '/scratch/home/kerencohen2/uveye_task/car_defects_detection/mmdetection'
 data_root = root + '/data/Dataset'
 
 train_batch_size_per_gpu = 2
-train_num_workers = 2#0
+train_num_workers = 0#2
 
 max_epochs = 20#20
 stage2_num_epochs = 1
@@ -34,6 +34,7 @@ train_pipeline = [
     dict(type='LoadImageFromFile', backend_args=backend_args),
     dict(type='LoadAnnotations', with_bbox=True, with_mask=True, poly2mask=False),
     dict(type='CropToCarROI'),
+#    dict(type = 'RandomCrop', crop_size=(640, 640)),
     dict(
         type='Resize',
         scale=(1333, 800), #how to choose that?
@@ -56,7 +57,7 @@ test_pipeline = [
 train_dataloader = dict(
     batch_size=train_batch_size_per_gpu,
     num_workers=train_num_workers,
-    persistent_workers = True,
+    persistent_workers = False,
     sampler=dict(type='DefaultSampler',shuffle=True),
     batch_sampler=dict(type='AspectRatioBatchSampler'),
     dataset=dict(
@@ -64,7 +65,7 @@ train_dataloader = dict(
         data_root=data_root,
         metainfo=metainfo,
         data_prefix=dict(img='train2017/'),
-        ann_file=data_root + '/annotations/annotations_train_postprocess.json',
+        ann_file=data_root + '/annotations/annotations_train_postprocessroi.json',
         filter_cfg=dict(filter_empty_gt=True, min_size=32),
         pipeline=train_pipeline,
         backend_args=backend_args))
@@ -72,7 +73,7 @@ train_dataloader = dict(
 val_dataloader = dict(
 	batch_size=1,
 	num_workers=train_num_workers,
-	persistent_workers = True,
+	persistent_workers = False,
 	sampler=dict(type='DefaultSampler',shuffle=False),
 	dataset=dict(
 		type=dataset_type,
@@ -80,14 +81,14 @@ val_dataloader = dict(
 		metainfo=metainfo,
 		data_prefix=dict(img='val2017/'),
 		test_mode=True,
-		ann_file=data_root + '/annotations/annotations_val_postprocess.json',
+		ann_file=data_root + '/annotations/annotations_val_postprocessroi.json',
 		pipeline=test_pipeline,
 		backend_args=backend_args))
 
 test_dataloader = dict(
 	batch_size=1,
 	num_workers=train_num_workers,
-	persistent_workers = True,
+	persistent_workers = False,
 	sampler=dict(type='DefaultSampler',shuffle=False),
 	dataset=dict(
 	type=dataset_type,
@@ -95,13 +96,13 @@ test_dataloader = dict(
 		metainfo=metainfo,
 		data_prefix=dict(img='test2017/'),
 		test_mode=True,
-		ann_file=data_root + '/annotations/annotations_test_postprocess.json',
+		ann_file=data_root + '/annotations/annotations_test_postprocessroi.json',
 		pipeline=test_pipeline,
 		backend_args=backend_args))
         
-val_evaluator = dict(ann_file=data_root + '/annotations/annotations_val_postprocess.json', metric=['bbox', 'segm'], format_only=False, backend_args=backend_args)
+val_evaluator = dict(ann_file=data_root + '/annotations/annotations_val_postprocessroi.json', metric=['bbox', 'segm'], format_only=False, backend_args=backend_args)
 
-test_evaluator = dict(ann_file=data_root + '/annotations/annotations_test_postprocess.json', metric=['bbox', 'segm'], format_only=True, 
+test_evaluator = dict(ann_file=data_root + '/annotations/annotations_test_postprocessroi.json', metric=['bbox', 'segm'], format_only=True, 
 		outfile_prefix='./work_dirs/car_defects_detection/test', backend_args=backend_args)
 #####
 

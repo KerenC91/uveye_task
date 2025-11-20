@@ -214,25 +214,25 @@ if __name__ == '__main__':
         post_images.append(img_entry)
 
         
-        for ann in anns:
-            # new_ann = ann.copy()
-            # # Update bbox
-            # new_ann["bbox"] =
-            # if new_ann["bbox"] is None:
-            #     continue
-            # # Crop segmentation mask
-            # new_ann["segmentation"] = 
-            # # Update area
-            # new_ann["area"] =
-            # post_annotations.append(new_ann)
-            ok = update_annotation_after_roi_crop(
-                    ann,
-                    roi,
-                    img_h,
-                    img_w
-                )
-            if ok:
-                post_annotations.append(ann)
+        # for ann in anns:
+        #     # new_ann = ann.copy()
+        #     # # Update bbox
+        #     # new_ann["bbox"] =
+        #     # if new_ann["bbox"] is None:
+        #     #     continue
+        #     # # Crop segmentation mask
+        #     # new_ann["segmentation"] = 
+        #     # # Update area
+        #     # new_ann["area"] =
+        #     # post_annotations.append(new_ann)
+        #     ok = update_annotation_after_roi_crop(
+        #             ann,
+        #             roi,
+        #             img_h,
+        #             img_w
+        #         )
+        #     if ok:
+        #         post_annotations.append(ann)
 
         # save cropped ROI image
         if params.save_debug_vis:
@@ -240,14 +240,14 @@ if __name__ == '__main__':
             plt.imsave(os.path.join(out_dir, f"cropped_roi_{params.model_key}.jpg"), roi_img)
 
     # Update postprocess_coco
-    postprocess_coco["annotations"] = post_annotations
+    # postprocess_coco["annotations"] = post_annotations
     postprocess_coco["images"] = post_images
 
     
     # ============================================================
     #                SAVE UPDATED JSON WITH ROI
     # ============================================================
-    out_post_ann_filename = f"annotations_{params.dataset}_postprocess.json"
+    out_post_ann_filename = f"annotations_{params.dataset}_postprocessroi.json"
     out_post_ann_fullpath = os.path.join(ann_dir, out_post_ann_filename)
 
     with open(out_post_ann_fullpath, "w") as f:

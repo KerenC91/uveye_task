@@ -8,23 +8,13 @@ params = Params(
     # ------------------------------------------------------------
     # Dataset settings
     # ------------------------------------------------------------
-    data_dir="../data/Dataset",
-    dataset="test",                 # options: "train", "val", "test"
-    use_fixed_ann=True,            # load annotations_*_fixed.json if True
-    num_images=0,                  # 0: process all images
+    num_images=2,                  # 0: process all images
 
     # ------------------------------------------------------------
     # Model + inference settings
     # ------------------------------------------------------------
-    model_key="rtmdet_x",            # choose from model_zoo keys
     score_threshold=0.2,           # detection confidence threshold
     bad_threshold=0.5,              # for person class
-    save_debug_vis=True,           # save visualization and ROI jpeg
-
-    # ------------------------------------------------------------
-    # Output settings
-    # ------------------------------------------------------------
-    output_root="output/output_test_rtmdet_x_th_0.2_largest_score_cropped_def_box_more_cls_rem_per",
 
     # ------------------------------------------------------------
     # ROI validation settings
@@ -37,7 +27,7 @@ params = Params(
     # (car=2, motorcycle=3, bus=5, truck=7, boat=8, airplane=4)
     # ------------------------------------------------------------
     vehicle_classes={2, 3, 5, 7, 8, 4},
-    invalid_classes={0}, #person
+    invalid_classes={0}, # person
     # ------------------------------------------------------------
     # Model Zoo
     # ------------------------------------------------------------
@@ -66,7 +56,6 @@ params = Params(
                 "../checkpoints/rtmdet_x_8xb32-300e_coco_20220715_230555-cc79b9ae.pth"
             ),
         },
-        # Add more models here if needed...
     },
 )
 
@@ -74,21 +63,7 @@ test_params = Params(
     # ------------------------------------------------------------
     # Dataset settings
     # ------------------------------------------------------------
-    data_dir="../data/Dataset",
-    dataset="test",                 # options: "train", "val", "test"
     num_images=0,                  # 0: process all images
-
-    # ------------------------------------------------------------
-    # Model + inference settings
-    # ------------------------------------------------------------
-    model_key="rtmdet_tiny",            # choose from model_zoo keys
-    score_threshold=0.2,           # detection confidence threshold
-    save_debug_vis=True,           # save visualization and ROI jpeg
-
-    # ------------------------------------------------------------
-    # Output settings
-    # ------------------------------------------------------------
-    output_root="output/output_test",
 
     # ------------------------------------------------------------
     # Model Zoo
@@ -100,6 +75,11 @@ test_params = Params(
                 "../work_dirs/rtmdet_tiny_8xb32-300e_car_defects/best_coco_bbox_mAP_epoch_17.pth"
             ),
         },
-        # Add more models here if needed...
+        "mask_rcnn_r50": {
+            "model_name": "../configs/mask_rcnn/mask-rcnn_r50_fpn_1x_car_defects.py",
+            "checkpoint": (
+                "../work_dirs/mask-rcnn_r50_fpn_1x_car_defects/best_coco_bbox_mAP_epoch_16.pth"
+            ),
+        },
     },
 )

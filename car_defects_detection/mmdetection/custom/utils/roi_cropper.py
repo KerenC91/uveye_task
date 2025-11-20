@@ -248,9 +248,14 @@ class ROICropper:
     # ----------------------------------------------------------------------
     # HISTOGRAM PLOT
     # ----------------------------------------------------------------------
-    def show_hist(self, filename, showfig=False):
+    def show_hist(self, filename, savefig=False):
+        plt.figure()
         plt.hist(self.global_scores, bins=20)
         plt.title("Score distribution")
-        plt.savefig(filename)
-        if showfig:
+    
+        if savefig:
+            plt.savefig(filename)
+        else:
             plt.show()
+    
+        plt.close()
